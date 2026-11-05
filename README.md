@@ -20,6 +20,108 @@ VITE_BASE44_APP_BASE_URL=your_backend_url
 4. `npm run dev`
 5. Publish changes with the **Publish** button in the Base44 editor.
 
+> The steps above describe the original Base44 app. The migration to Vercel + Railway + Supabase is in progress on branch `migration/supabase`; see [docs/migration](docs/migration/) and the section below.
+
+---
+
+## Environment variables (Vercel + Railway + Supabase)
+
+Templates with placeholders: [`.env.example`](.env.example) (frontend) and [`server/.env.example`](server/.env.example) (backend). **Real values are entered only in the Vercel, Railway, Supabase, Google, Resend and GitHub dashboards. They never go into git or a chat.**
+
+**Rules:**
+- `VITE_` variables are compiled into the browser bundle, so they are **public**. Only the Supabase URL, the publishable key, the API URL and display settings may use `VITE_`. The build refuses secret-looking `VITE_` variables.
+- These stay on Railway (and in CI secrets): the Supabase secret key, the database URL and password, and the Resend and Anthropic keys.
+- The Google client secret lives **only** in Supabase.
+- Staging and production use **separate** Supabase projects, Railway environments and keys. Never reuse production keys in staging.
+
+### Frontend: Vercel → Project → Settings → Environment Variables
+
+Set the **Preview** scope to the staging values and the **Production** scope to the production values.
+
+| Variable | Required | Placeholder | Source / notes |
+|---|---|---|---|
+| `VITE_SUPABASE_URL` | yes | `https://YOUR_SUPABASE_PROJECT_ID.supabase.co` | Supabase → Project Settings → API |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | yes | `YOUR_SUPABASE_PUBLISHABLE_KEY` | Supabase → API Keys → Publishable (`sb_publishable_…`). **Never** the secret key |
+| `VITE_API_URL` | yes | `https://YOUR_RAILWAY_BACKEND_URL` | Railway service → Settings → Domains (generated `*.up.railway.app`) |
+| `VITE_APP_URL` | prod | `https://YOUR_PRODUCTION_DOMAIN` | Auth redirect base. Leave empty for Preview, where each preview uses its own origin |
+| `VITE_AUTH_PROVIDERS` | yes | `google` | Social buttons shown. Add others only after configuring them in Supabase |
+| `VITE_CURRENCY` | yes | `USD` | ISO 4217, 0 or 2 decimals; must equal `CURRENCY` |
+
+### Backend: Railway → service → Variables, per environment (`staging`, `production`)
+
+| Variable | Required | Placeholder | Source / notes |
+|---|---|---|---|
+| `APP_ENV` | yes | `staging` / `production` | Checked by the server and by the test and migration guards |
+| `NODE_ENV` | yes | `production` | Also `production` on staging, so stack traces are hidden |
+| `PORT` | auto | `3001` | Set by Railway; the server binds `0.0.0.0` |
+| `LOG_LEVEL` | no | `info` | |
+| `CURRENCY` | yes | `USD` | Must equal `VITE_CURRENCY` |
+| `APP_URL` | yes | `https://YOUR_FRONTEND_URL` | Used in email links and invite and reset redirects |
+| `FRONTEND_ORIGINS` | yes | `https://YOUR_FRONTEND_URL` | CORS allow-list, comma-separated. On staging add `https://b12-*-YOUR_VERCEL_TEAM.vercel.app` |
+| `SUPABASE_URL` | yes | `https://YOUR_SUPABASE_PROJECT_ID.supabase.co` | |
+| `SUPABASE_PROJECT_ID` | yes | `YOUR_SUPABASE_PROJECT_ID` | Project reference ID, the subdomain of the URL |
+| `SUPABASE_SECRET_KEY` | yes | `YOUR_SUPABASE_SECRET_KEY` | Supabase → API Keys → Secret (`sb_secret_…`), the service-role/secret key. **Backend only** |
+| `DATABASE_URL` | yes | `postgresql://postgres.YOUR_SUPABASE_PROJECT_ID:YOUR_DATABASE_PASSWORD@YOUR_SUPABASE_POOLER_HOST:5432/postgres?sslmode=require` | Supabase → Connect → **Session pooler** (IPv4) |
+| `DATABASE_POOL_MAX` | no | `10` | |
+| `STORAGE_PRODUCT_IMAGES_BUCKET` | no | `product-images` | Public-read bucket |
+| `STORAGE_SHIFT_REPORTS_BUCKET` | no | `shift-reports` | Private bucket |
+| `RESEND_API_KEY` | yes | `YOUR_RESEND_API_KEY` | Resend → API Keys (sending access) |
+| `EMAIL_FROM` | yes | `B12 Store <YOUR_SENDER_EMAIL>` | Must be on a domain verified in Resend |
+| `ANTHROPIC_API_KEY` | yes | `YOUR_ANTHROPIC_API_KEY` | Anthropic Console → API Keys |
+| `ANTHROPIC_MODEL` | yes | `claude-opus-5-5` | Checked at startup with the Models API |
+
+No JWT secret or session secret is needed. Tokens are verified with Supabase's public signing keys (JWKS), and the API is stateless bearer-token auth.
+
+### CLI, CI and test runs only (not on Railway)
+
+These go in GitHub → Settings → Environments → `staging` → Secrets, or in a git-ignored `server/.env.staging` that you fill in yourself.
+
+| Variable | Placeholder | Notes |
+|---|---|---|
+| all backend variables above | staging values | Tests refuse to run unless `APP_ENV=staging` and the project ID equals the staging entry in `server/scripts/targets.json` |
+| `SUPABASE_ACCESS_TOKEN` | `YOUR_SCOPED_SUPABASE_ACCESS_TOKEN` | A **scoped** personal access token, limited to the staging project. Used by `supabase db push --linked` and the advisors |
+| `SUPABASE_DB_PASSWORD` | `YOUR_DATABASE_PASSWORD` | For the Supabase CLI |
+| `TEST_EMAIL_RECIPIENT` | `delivered@resend.dev` | Resend test address for automated email tests |
+
+`server/scripts/targets.json` (committed, not secret) holds `{"staging": "YOUR_STAGING_PROJECT_ID", "production": "YOUR_PRODUCTION_PROJECT_ID"}`.
+
+### Supabase dashboard settings, per project
+
+| Setting | Staging | Production |
+|---|---|---|
+| Authentication → Sign In / Providers → **Allow new users to sign up** | **Off** | **Off** |
+| Email provider | On | On |
+| Google provider | On, with the staging Google client ID + secret | On, with the production Google client ID + secret |
+| URL Configuration → Site URL | Staging Vercel URL | `https://YOUR_PRODUCTION_DOMAIN` (or the production `*.vercel.app` URL until the domain is added) |
+| URL Configuration → Redirect URLs | `https://YOUR_STAGING_URL/**`, `https://b12-*-YOUR_VERCEL_TEAM.vercel.app/**` | `https://YOUR_PRODUCTION_DOMAIN/**` only |
+| Authentication → SMTP (custom) | Host `smtp.resend.com`, port `465`, user `resend`, password = a Resend API key, sender = `EMAIL_FROM` | same, with the production key |
+| JWT signing keys | Asymmetric (default for new projects) | same |
+| Storage | Buckets come from migration `0003_storage.sql`; create nothing by hand | same |
+
+### Google OAuth
+
+1. Google Cloud Console → APIs & Services → Credentials → **Create OAuth client ID** → *Web application*. Create **one client per environment** (staging and production).
+2. **Authorized JavaScript origins:** the frontend URL(s) of that environment.
+3. **Authorized redirect URI:** `https://YOUR_SUPABASE_PROJECT_ID.supabase.co/auth/v1/callback`, the Supabase callback, not the app.
+4. OAuth consent screen: app name, support email, and the scopes `email`, `profile`, `openid`. While the screen is in *Testing*, only listed test users can sign in. Publish it before production.
+5. Paste the **client ID and client secret only into Supabase → Authentication → Providers → Google.** They never go in Vercel, Railway, GitHub or any `.env` file.
+
+### Staging vs production setup order
+
+1. **Staging:** create the Supabase project → enter its settings (table above) → apply the migrations (`supabase db push --linked` from `server/`) → create the Railway `staging` environment and enter its variables → set the Vercel Preview variables → run CI.
+2. **Production (only with approval):** repeat with the production project, Railway `production` and Vercel Production variables. Migrations and imports run behind the production authorization of the migration guard.
+
+### After adding your domain in Vercel
+
+I make no DNS changes. Once you add `YOUR_PRODUCTION_DOMAIN` in Vercel → Domains and its DNS is verified, update:
+
+1. **Vercel (Production):** `VITE_APP_URL=https://YOUR_PRODUCTION_DOMAIN`, then redeploy.
+2. **Railway (production):** `APP_URL=https://YOUR_PRODUCTION_DOMAIN`. In `FRONTEND_ORIGINS`, replace the `*.vercel.app` URL with `https://YOUR_PRODUCTION_DOMAIN`.
+3. **Supabase (production) → URL Configuration:** Site URL = `https://YOUR_PRODUCTION_DOMAIN`; Redirect URLs = `https://YOUR_PRODUCTION_DOMAIN/**`. Remove the temporary `vercel.app` entry.
+4. **Google OAuth client (production):** add `https://YOUR_PRODUCTION_DOMAIN` to the Authorized JavaScript origins. The redirect URI (Supabase callback) is unchanged.
+5. **Resend:** add and verify the domain (its DNS records are added by you at your DNS provider), then set `EMAIL_FROM` (Railway) and the Supabase SMTP sender to an address on it.
+6. Optional: a custom API domain in Railway, then update `VITE_API_URL`.
+
 ---
 
 ## Database overview

@@ -1,6 +1,22 @@
 # B12 Store Solution — Phase 2 Migration Design
 
 Status: **design only — awaiting approval before Phase 3**. No application file has been changed.
+Round 3 corrections (2026-11-05), marked "correction, round 3" in the text:
+- money precision (§3, §3.4);
+- server-generated shift reports (§3.3, S13–S14);
+- uninvited Google accounts (§4);
+- the model check (§3.9);
+- migration target protection (§6);
+- storage access (§7);
+- git secret exclusions (§8);
+- deleting obsolete files (§11.10).
+
+Round 4 (2026-11-05): **cloud-only development, with no Docker and no local Supabase.**
+- All testing runs on a dedicated hosted **staging** Supabase project, Railway `staging` environment and Vercel previews, with CI on GitHub Actions (§11).
+- Everything server-side lives in `server/` (§2).
+- The full environment variable reference is in the README.
+- One configurable currency (§11).
+- The domain is not blocking: Railway/Vercel generated URLs until you add the domain in Vercel, and **I make no DNS changes** (§9).
 Date: 2026-11-05
 
 Target: React 18 + Vite on **Vercel** · Node 22 + Express on **Railway** · **Supabase** Postgres, Auth and Storage · **Resend** email · **Anthropic** API.
@@ -95,7 +111,7 @@ Notation: `list(sort, limit)` and `filter(query, sort, limit)`. The default limi
 | CreateUserForm.jsx | `auth.register`, `verifyOtp`, `resendOtp` | `POST /api/users/invite`, `POST /api/users/:id/resend-invite` (D1) |
 | OAuthConsent.jsx | `auth.isAuthenticated`, `/api/apps/{id}/mcp/*` | **Removed.** Base44-only MCP consent screen; no route uses it. |
 | ProductImageField.jsx:23 | `integrations.Core.UploadPublicFile` | `POST /api/uploads/product-image` → `{file_url}` (same shape) |
-| shiftReport.js:345, :448 | `UploadPublicFile(pdf)`, `SendEmail` per admin | `POST /api/shifts/:id/report` (upload, then email from the server) |
+| shiftReport.js:345, :448 | `UploadPublicFile(pdf)`, `SendEmail` per admin | `POST /api/shifts/:id/report`: the server generates the official PDF from database values, stores it and emails it (§3.3) |
 | stockAlerts.js:117 | `SendEmail` per admin | Server-side, triggered inside `POST /api/sales` |
 | RestockAdvisor.jsx:34, :42, :53 | `agents.createConversation`, `subscribeToConversation`, `addMessage` | `POST /api/restock-advisor/chat` (§3.9) |
 | app-params.js, vite.config.js, index.html | `VITE_BASE44_*`, `@base44/vite-plugin`, base44.com favicon | Removed or replaced (§8) |
@@ -136,10 +152,18 @@ Browser (Vercel, static SPA)
   src/index.js  src/db.js  src/auth.js  src/errors.js
   src/routes/{entities,sales,returns,inventory,shifts,users,uploads,advisor,health}.js
   src/email/{shiftReport,lowStock}.js     (templates moved from src/utils, values HTML-escaped)
-  scripts/{import-base44.js, migrate-images.js, invite-users.js}
+  src/reports/shiftReportPdf.js           (official PDF, moved from src/utils/shiftReport.js)
+  src/lib/money.js
+  scripts/{import-base44,migrate-images,migrate-reports,invite-users}.js  scripts/lib/target-guard.js  scripts/targets.json
+  supabase/migrations/   0001_schema.sql  0002_security.sql  0003_storage.sql   (Supabase CLI: --workdir server)
+  supabase/test-fixtures/  staging-only test helpers (never applied to production)
   test/
-/supabase/migrations    0001_schema.sql  0002_security.sql  0003_storage.sql
+  .env.example
+/.github/workflows/ci.yml   build + lint + server tests against the hosted staging project
+/.env.example               frontend (public VITE_ values only)
 ```
+
+**Round 4: everything server-side lives in `server/`.** The original project has **no server-side code** (Base44 hosted it), so nothing existing has to move. The Express API, its tests, the migration scripts and the Supabase migrations are all created inside `server/`. The frontend reaches it only through `VITE_API_URL`.
 
 - **Frontend changes are mechanical** for about 22 files: `import { base44 } from '@/api/base44Client'` becomes `import { api } from '@/api/client'`, and `base44.` becomes `api.`. The call signatures stay the same. Only these files change logic: `SaleTerninal`, `ReturnModal`, `returns.js`, `InventoryManager`, `MyShift`, `ShiftCloseModal`, `shiftReport.js`, `stockAlerts.js`, `CreateUserForm`, `RestockAdvisor`, `AuthContext`, the 4 auth pages, `SocialAuthButtons`, `AppLayout`, `Sidebar` and `PageNotFound`. UI markup and styling are untouched.
 
@@ -147,9 +171,17 @@ Browser (Vercel, static SPA)
 
 ## 3. API specification
 
-**Base URL:** `https://api.<domain>`. Every `/api/*` route requires `Authorization: Bearer <supabase access token>` unless marked public.
+**Base URL:** `VITE_API_URL`, which is the Railway service URL (`https://<service>-<env>.up.railway.app`) or, optionally, a custom API domain you add later. Every `/api/*` route requires `Authorization: Bearer <supabase access token>` unless marked public.
 
-**Record format.** Records use the same field names as Base44: `id`, `created_date`, `updated_date`, `created_by_id`, plus the entity fields. `Transaction` and `Return` records include `items: [...]` with the original item keys. Money is returned as JSON **numbers**: the pg NUMERIC parser is overridden, otherwise `(a || 0) + b` in the UI would concatenate strings.
+**Record format.** Records use the same field names as Base44: `id`, `created_date`, `updated_date`, `created_by_id`, plus the entity fields. `Transaction` and `Return` records include `items: [...]` with the original item keys. Money fields are returned as JSON numbers with at most 2 decimals (quantities at most 3), written from the exact decimal value. The pg NUMERIC parser is **not** overridden (see "Money precision" below).
+
+**Money precision (correction, round 3).** No monetary value is ever computed with JavaScript floating point, on the server or in the browser.
+- **Database:** money stays `numeric(12,2)` and quantities `numeric(12,3)`. `pg` returns NUMERIC as **strings** (default parser kept).
+- **Server:** `server/src/lib/money.js` parses those strings straight into **integer minor units** (cents as `BigInt`; quantities as thousandths), without passing through a float. All sale, discount, tax, cost, profit, return, margin, shift-balance and variance arithmetic runs on these integers. The result is written back as an exact decimal string. Totals that can be done in SQL (`SUM`, relative shift updates) stay in `numeric`.
+- **Rounding:** each line rounds once to 2 dp, half away from zero, the same as Postgres `ROUND(numeric, 2)`. Totals are sums of already-rounded lines, so a receipt always adds up.
+- **Browser:** `src/lib/money.js` (`toCents`, `fromCents`, `sumMoney`, `mulMoney`, `formatMoney`) replaces the float sums and multiplications in the ~37 files that compute money today: dashboards, margins, wholesale analytics, cart previews, PDFs, CSV export. `toCents` reads the 2-dp value through its decimal string, never `x * 100` on an unrounded float. Browser figures are display only; the server values are authoritative.
+- **Import:** the preflight reads exported money as text. Any value with more than 2 decimals (float residue such as `12.3400000001`), and any transaction whose stored totals don't equal the sum of its lines, is **reported, not silently fixed**. Reconciliation compares exact decimal sums.
+- **Tests:** unit tests on `money.js` (e.g. `0.1 + 0.2`, 3-dp quantities, half-way rounding, 10¹⁰-scale totals), plus T21 in the checklist.
 
 **Errors.** Errors return `{ "error": { "code": "STRING", "message": "Human text", "details": {...}? } }`.
 
@@ -220,10 +252,11 @@ The client shim throws an `Error` carrying `message` and `status`, so existing `
 | Method | Path | Body | Behaviour |
 |---|---|---|---|
 | POST | `/api/shifts/start` | – | Creates an open shift for the caller with server time and zero totals. Returns `201 {shift}`. If one is already open it returns `409 SHIFT_ALREADY_OPEN` with `details.shift`, enforced by a partial unique index. |
-| POST | `/api/shifts/:id/close` | `{declared_cash?: number ≥ 0}` | Allowed for the owner or an admin. In one transaction: lock the shift, require `open`, set `status='closed'` and `end_time=now()`. Returns `{shift}`. Returns `409 SHIFT_NOT_OPEN` if it's already closed. |
-| POST | `/api/shifts/:id/report` | multipart: `pdf` (application/pdf, ≤ 10 MB), `declared_cash?` | Allowed for the owner or an admin, on a closed shift only. Stores the PDF in the private `shift-reports` bucket at `{shift_id}/{timestamp}.pdf`. Builds the email from **database** values (totals and variance against `declared_cash`), with the PDF attached, and sends it to every `app_users.role='admin'` email via Resend. Returns `{pdf_url}`, a 7-day signed URL. Rate limit: 5 per shift per hour. |
+| POST | `/api/shifts/:id/close` | `{declared_cash?: decimal ≥ 0}` | Allowed for the owner or an admin. In one transaction: lock the shift, require `open`, set `status='closed'`, `end_time=now()` and `declared_cash` (S14, the cashier's own cash count, the only figure taken from the browser). Returns `{shift}`. Returns `409 SHIFT_NOT_OPEN` if it's already closed. |
+| POST | `/api/shifts/:id/report` | `{store?: {name, address, phone, email}}` (display text only, each ≤ 200 chars) | Allowed for the owner or an admin, on a closed shift only. **The server generates the official PDF**, from database values only (shift totals, its transactions and items, `declared_cash`, variance computed server-side). It stores the PDF in the private `shift-reports` bucket at `{shift_id}/{timestamp}.pdf` and sets `shifts.report_path` (S13). It sends the email, built from the same database values with the PDF attached, to every `app_users.role='admin'` email. Returns `{report_path}`. Rate limit: 5 per shift per hour. |
+| GET | `/api/shifts/:id/report-url` | – | Owner or admin. Returns a signed URL that **expires after 10 minutes**, issued fresh on each call. `404` if there is no report. |
 
-The PDF is still generated in the browser, as today. Because the email numbers come from the database, a tampered PDF can't change what admins read in the email.
+**Report integrity (correction, round 3).** The browser no longer builds or uploads the report. `generateShiftPDF` moves from `src/utils/shiftReport.js` to `server/src/reports/shiftReportPdf.js` with the same layout (jsPDF runs in Node), so it reads only server data. The browser's "Download PDF" fetches the stored official PDF through `report-url`. The store header fields live in each device's `localStorage` today, so they are sent as plain display text, escaped and length-limited. They carry no numbers, and the server takes no financial value from the browser.
 
 ### 3.4 Sales (retail and wholesale), atomic
 
@@ -249,7 +282,7 @@ The server does all of this in **one database transaction**:
    - `cost_price` is snapshotted from the product.
    - `0 ≤ discount_amount ≤ subtotal + tax`.
    - `grand_total`, `total_cost`, `gross_profit` and `change_given = max(0, amount_paid − grand_total)` follow today's formulas.
-   - Money is rounded to 2 dp per line.
+   - All of this runs in integer cents (`money.js`). Each line rounds once to 2 dp, half away from zero; no floats are used.
 6. **Write the sale.** Insert `transactions` (number `TX-`/`WS-` + base36 time + 4 random characters, unique) and `transaction_items` (with `line_no`).
 7. **Decrement stock.** `UPDATE products SET stock_quantity = stock_quantity − qty`. A `CHECK (stock_quantity >= 0)` constraint is the backstop.
 8. **Update the shift.** `UPDATE shifts SET total_<method>_sales += …, total_revenue += …, total_transactions += 1, total_cost += …, total_profit += …`. These are relative updates, so there is no read-modify-write.
@@ -310,7 +343,8 @@ Response `201 {return, restocked_units, written_off_units}`.
 These are the fields `MessageBubble` already renders: `tool_calls[].name`, `status`, `arguments_string` and `results`.
 
 How the server runs it:
-- Anthropic TypeScript SDK with the Tool Runner, model from `ANTHROPIC_MODEL` (default `claude-opus-5-5`).
+- Anthropic TypeScript SDK with the Tool Runner. The model is **configurable through the server environment** (`ANTHROPIC_MODEL`), with a default of `claude-opus-5-5`. That ID was checked on 2026-11-05 against Anthropic's models overview, which lists it as a current model retiring no sooner than 2027-09-22.
+- **Verified before use:** on startup, the server calls the Models API (`models.retrieve(ANTHROPIC_MODEL)`) with its own key. If the model isn't available to that key, only `/api/restock-advisor/chat` is disabled; it returns `503 AI_MODEL_UNAVAILABLE` and the error is logged. The rest of the API keeps running. `npm run check:model` runs the same check by hand on staging.
 - Adaptive thinking at effort `medium`, with server-side refusal `fallbacks: "default"` enabled.
 - Non-streaming, `max_tokens` about 16000.
 
@@ -335,7 +369,14 @@ Answers will not match the old agent word for word. If you can export the agent 
 **Supabase project settings:**
 - Email provider on, with **"Allow new users to sign up" off**.
 - Google provider on.
-- Site URL `https://app.<domain>`, with redirect URLs for the app domain, Vercel previews and `localhost:5173`.
+- **Staging project:**
+  - Site URL = the staging Vercel URL.
+  - Redirect URLs: the staging Vercel URL `/**` and the Vercel preview pattern `https://*-<vercel-team>.vercel.app/**`.
+- **Production project:**
+  - Site URL = `https://YOUR_PRODUCTION_DOMAIN`.
+  - Redirect URL: `https://YOUR_PRODUCTION_DOMAIN/**` only.
+  - Until you add the domain in Vercel, use the production `*.vercel.app` URL; README "After adding your domain" lists what to change.
+- No `localhost` redirect in either project, since there is no local stack.
 - **Custom SMTP through Resend.** The built-in sender is heavily rate-limited and not meant for production.
 - Asymmetric JWT signing keys.
 
@@ -344,7 +385,7 @@ Answers will not match the old agent word for word. If you can export the agent 
 | Session | `supabase-js` in the browser stores the session and refreshes it automatically. `src/api/client.js` reads `session.access_token` for every request. |
 | AuthContext | Keeps the **same context shape** (`user, isAuthenticated, isLoadingAuth, authError, logout, navigateToLogin, checkAppState`), so `ProtectedRoute` and `AdminRoute` stay unchanged. On start it calls `getSession()`, subscribes to `onAuthStateChange`, then calls `GET /api/auth/me` for role and display name. `appPublicSettings` and `isLoadingPublicSettings` are Base44-only and are dropped (nothing reads them outside AuthContext). |
 | Admin and cashier login | `signInWithPassword` on `/login`, then `safeReturnTo()`. Roles come from `app_users.role`, **never** from JWT `user_metadata` (that is user-editable). |
-| Google sign-in | `signInWithOAuth({provider:'google', options:{redirectTo}})`. With sign-ups off, only invited emails can get in. Supabase docs state that identities with the same email are linked automatically, so an invited user can use either method. *To verify on staging in Phase 5:* that Google is refused for an email nobody invited. |
+| Google sign-in | `signInWithOAuth({provider:'google', options:{redirectTo}})`. With sign-ups off, only invited emails can get in. Supabase docs state that identities with the same email are linked automatically, so an invited user can use either method. **Two independent barriers against uninvited Google accounts (correction, round 3):**<br>(1) With sign-ups off, Supabase should refuse to create the user. This is **tested on staging with a real Google account (T11)**: no `auth.users` row, no session.<br>(2) Even if a row were created, `requireAuth` matches **only** on `app_users.auth_user_id = sub`, which is set by the invite and never linked by email at login. So any other account gets `403 USER_NOT_REGISTERED` on every route.<br>If T11 shows Supabase does create the user, a **Before User Created auth hook** that rejects any email without a pending invite is added and T11 re-run. Production is blocked until T11 passes. |
 | Email verification | The invite link confirms the email address. With signups disabled there is no self-signup that would need confirming. |
 | Invite acceptance | The link lands on `/reset-password` with a session. The page shows "Set your password" and calls `updateUser({password})`. |
 | Password reset | `/forgot-password` calls `resetPasswordForEmail(email, {redirectTo: APP_URL + '/reset-password'})`. `/reset-password` waits for the `PASSWORD_RECOVERY` session, then calls `updateUser({password})`. The `?token=` query parameter goes away; old Base44 reset links stop working. |
@@ -371,6 +412,8 @@ The 10 tables, their columns, CHECK constraints and indexes are reused as writte
 | S9 | `transaction_items` and `return_items` stay **normalized** (as in `schema.sql`) | The API rebuilds `items[]` with the original keys in `line_no` order, so the UI is unchanged and analytics can query lines. Nothing is lost: the import maps every documented item key to a column and **aborts with a report** if it finds an undocumented key. |
 | S10 | `sale_type` NULL in imported data becomes `'retail'` | Matches `utils/wholesale.js` ("older records have no sale_type"). |
 | S11 | RLS **enabled on all 10 tables**, no policies; `REVOKE ALL` on these tables from `anon` and `authenticated` | Data access is through the API only (§2). Supabase stopped auto-exposing new tables to the Data API in 2026, and the revoke makes it explicit. |
+| S13 | `shifts.report_path text` (nullable) | Links the stored official PDF (new or migrated) to its shift. |
+| S14 | `shifts.declared_cash numeric(12,2)` (nullable, `CHECK >= 0`) | The cashier's count is stored, so the server can compute the variance for the PDF and email. Previously it only existed in the browser. |
 | S12 | Extra indexes: `transactions(cashier_email, created_date DESC)`, `transactions(sale_type, created_date DESC)`, `shifts(created_date DESC)`, `stock_adjustments(created_date DESC)` | These match the actual query patterns in §1.1. |
 
 **Kept as is:**
@@ -378,11 +421,11 @@ The 10 tables, their columns, CHECK constraints and indexes are reused as writte
 - `products.category` → `categories(name)` with `ON UPDATE CASCADE ON DELETE SET NULL`. The UI already blocks deleting a category that is in use.
 
 **Migration files:**
-- `supabase/migrations/0001_schema.sql` (tables + S1–S10, S12)
+- `server/supabase/migrations/0001_schema.sql` (tables + S1–S10, S12–S14)
 - `0002_security.sql` (S11)
 - `0003_storage.sql` (buckets and policies)
 
-They are created with `supabase migration new` and applied with `supabase db push`. The order is local, then staging, then production. **Production only with your approval.**
+They are created with `supabase migration new` and applied with `supabase db push --linked` (no Docker needed). The order is **staging, then production. Production only with your approval.** Because there's no throwaway local database, a mistake on staging is corrected with a new forward migration. Staging may be reset with `supabase db reset --linked`, which runs behind the same target guard (staging ref only) and is refused for production. `supabase db diff`/`pull` need Docker, so they aren't used; migrations are hand-written and reviewed.
 
 **Atomic operations** run as parameterized SQL inside `BEGIN … COMMIT` in Express, with `pg` on the Supavisor **session** pooler (port 5432, IPv4, which Railway needs). This keeps all business rules in one testable codebase, with no `SECURITY DEFINER` functions. Isolation is READ COMMITTED with explicit row locks (§3.4).
 
@@ -401,7 +444,17 @@ They are created with `supabase migration new` and applied with `supabase db pus
    - duplicate `transaction_number` or `return_number`;
    - unknown keys inside `items[]`;
    - suppliers that products reference but that don't exist.
+   - money values with more than 2 decimals, and stored totals that don't equal the sum of their lines (exact decimal comparison).
 3. **Fix** anything reported, with your decision for each case. The script never "repairs" data silently.
+
+**Target protection (correction, round 3).** These rules apply to every script that writes: `import-base44.js`, `migrate-images.js`, `migrate-reports.js` and `invite-users.js`.
+- **Dry-run is the default.** Writing needs `--commit`.
+- `--target staging|production` is **required**, and so is `--expect-ref <project-ref>`.
+- The script reads the **actual** project ref from the connection itself: the `DATABASE_URL` pooler user (`postgres.<ref>`) or host (`db.<ref>.supabase.co`), and the `SUPABASE_URL` host (`<ref>.supabase.co`). It runs `SELECT current_database(), inet_server_addr()` and prints all of them. It aborts unless every source agrees and equals `--expect-ref`.
+- It also aborts unless that ref matches the ref recorded for the chosen target in `server/scripts/targets.json`. That file is committed, holds project refs only and no secrets, and must list two **different** refs.
+- **Production needs a separate, explicit authorization.** That is `--target production` plus `--i-have-approval-for-production=<ref>`, plus typing the ref again at an interactive prompt. With no TTY (CI) it refuses.
+- Any host other than `*.supabase.co` or `*.pooler.supabase.com` is refused. A mismatch or a missing flag exits non-zero **before** any connection opens a write transaction.
+- Every run writes a log file (target, ref, mode, counts) to `server/scripts/logs/`, which is git-ignored.
 4. **Import into staging** in **one transaction**, in FK order: `app_users` → `categories` → `suppliers` → `products` → `shifts` → `transactions` + items → `returns` + items → `stock_adjustments`.
    - Original `id`, `created_date`, `updated_date` and `created_by_id` are preserved.
    - The `updated_date` trigger is disabled for the import session only.
@@ -419,14 +472,14 @@ They are created with `supabase migration new` and applied with `supabase db pus
 
 | Bucket | Access | Contents |
 |---|---|---|
-| `product-images` | Public read. Writes only via the API with the secret key; no `anon`/`authenticated` write policies. | Product photos |
-| `shift-reports` | Private. Read only through API-issued signed URLs (7 days). | Shift close PDFs |
+| `product-images` | **Publicly viewable** via its public object URL. Direct client **upload, update, delete** and listing are blocked for `anon` and `authenticated`: there are no `storage.objects` policies for this bucket. The only writer is the API (`POST /api/uploads/product-image`, admin, secret key). | Product photos |
+| `shift-reports` | **Private.** No public URL and no client policies. Reachable only through `GET /api/shifts/:id/report-url`, which is owner or admin only and issues a 10-minute signed URL. | Official shift PDFs (server-generated or migrated) |
 
 **Migrating existing files:**
 - `scripts/migrate-images.js` scans `products.image_url`.
 - For each URL on a Base44 storage host (the host list is confirmed from your export), it downloads the file, checks it is an image ≤ 5 MB, uploads it to `product-images/{product_id}/{sha1}.{ext}` and rewrites `image_url`. It runs dry-run first.
 - URLs that admins pasted from other sites are left as they are.
-- Shift report PDFs are not referenced anywhere in the data (they were only emailed), so there is nothing to migrate. **Links in old report emails stop working once Base44 is shut down.**
+- Shift report PDFs: `scripts/migrate-reports.js` imports the files or links you can supply (checklist A3), maps each file to its shift by its `shift-report-{shift_id}.pdf` name or its contents, and sets `report_path`. Files that can't be retrieved are listed. **Links in old report emails stop working once Base44 is shut down.**
 
 ---
 
@@ -436,6 +489,9 @@ They are created with `supabase migration new` and applied with `supabase db pus
   - Only Railway holds `SUPABASE_SECRET_KEY`, `DATABASE_URL`, `RESEND_API_KEY` and `ANTHROPIC_API_KEY`.
   - The browser gets only the Supabase **publishable** key, the Supabase URL and the API URL.
   - `.env*` stays git-ignored; `.env.example` files hold placeholders only.
+  - `.gitignore` also excludes key and certificate files, service-account JSON, Supabase CLI temp folders, the Base44 **data exports** (they contain customer and staff personal data), migration logs and local backups.
+  - Secret scan: a dependency-free `scripts/check-secrets.mjs` (key patterns: Anthropic, Resend, Supabase secret, JWT, private keys, Postgres URLs with passwords) runs over the staged files as a git pre-commit hook, and again over the whole history before the first push to GitHub. A hit blocks the commit.
+  - The baseline commit was scanned before it was made: no `.env`, key files or credential strings.
 - **AuthN and AuthZ:**
   - Every `/api` route sits behind `requireAuth`, plus `requireAdmin` where the matrix in §3.1 says so.
   - Own-record scoping is forced on the server and never trusted from query parameters.
@@ -473,14 +529,15 @@ They are created with `supabase migration new` and applied with `supabase db pus
 - `vercel.json` rewrites everything to `/index.html` for SPA routes.
 - `@base44/vite-plugin` and `@base44/sdk` are removed. `vite.config.js` keeps React plus the `@` alias.
 - The favicon becomes a local file.
-- Environment variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_URL`, `VITE_AUTH_PROVIDERS`.
+- Environment variables: the full list, with placeholders, is in `/.env.example` and README → "Environment variables". All of them are public `VITE_` values; no secret ever gets a `VITE_` prefix.
 
 **Railway (backend):**
 - Root directory `server`, Node 22 (`engines`). supabase-js dropped Node 20.
 - Start: `node src/index.js`, listening on `process.env.PORT` and `0.0.0.0`.
 - Health check: `/health`.
 - `railway.json` holds the start command, health check and restart policy.
-- Environment variables: `NODE_ENV`, `DATABASE_URL` (session pooler), `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `APP_URL`, `FRONTEND_ORIGINS`, `RESEND_API_KEY`, `EMAIL_FROM`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `LOG_LEVEL`.
+- Environment variables: the full list is in `server/.env.example` and README → "Environment variables". The server refuses to start if a required one is missing or still a `YOUR_…` placeholder.
+- Two Railway environments, `staging` and `production`, each with its own variables. The backend URL is Railway's generated `*.up.railway.app` domain, so no DNS is needed.
 
 **Supabase:**
 - Two projects: **staging** and **production**.
@@ -494,7 +551,12 @@ They are created with `supabase migration new` and applied with `supabase db pus
 | `api` CNAME → Railway target | Backend |
 | Resend SPF / DKIM / DMARC TXT records | Email for reports, alerts and Supabase auth emails |
 
-The exact values come from each dashboard. Afterwards, update the Supabase Site URL and redirect URLs.
+**Round 4: you do all DNS work yourself.** I make no DNS changes and configure no domain. The table only lists what you will add:
+- the Vercel domain records shown in the Vercel dashboard;
+- Resend's sending-domain records;
+- optionally an `api` CNAME, which isn't needed because the Railway URL works as-is.
+
+Until then, Railway and Vercel generated URLs are used. README → "After adding your domain" lists every variable and redirect setting to update.
 
 **Environments:**
 - Vercel preview + Railway staging + Supabase staging for testing.
@@ -526,14 +588,28 @@ Enter these in the dashboards, never in code or chat:
 ## 11. Phase 3 build order (after approval)
 
 1. Set up git: baseline commit, then branch `migration/supabase`. Fix the 4 build blockers (§1.4) and confirm `npm run build` passes.
-2. Supabase migrations 0001–0003 on a **local** Supabase (`supabase start`), then run the advisors.
-3. Express skeleton: config, `pg` pool with the NUMERIC parser, auth middleware, error handler, logging, `/health`.
+2. Supabase migrations 0001–0003 on the **hosted staging** project (`supabase db push --linked`), then run the advisors. No Docker or local Supabase.
+3. Express skeleton: config, `pg` pool (NUMERIC kept as strings) plus `money.js`, auth middleware, error handler, logging, `/health`.
 4. Generic entity routes plus the permission matrix, with tests.
 5. Atomic routes: sales, returns, inventory, shifts. Tests include a **concurrency test** (two parallel sales on stock 1: exactly one succeeds) and an idempotency test.
 6. Users and invites, uploads, the email templates (escaped), the Restock Advisor.
 7. Frontend: `src/api/client.js`, `supabase.js`, AuthContext and the auth pages, then the mechanical call-site swap, then the logic changes listed in §2.
 8. Import, image and invite scripts, tested against a sample export.
 9. Deployment config, `.env.example` files, README, API docs.
-10. Phase 6 grep audit for `base44`, then remove the obsolete files (`app-params.js`, `OAuthConsent.jsx`, Base44 packages).
+10. Phase 6 grep audit for `base44`. Then, **on `migration/supabase` only**, delete `src/pages/OAuthConsent.jsx` and `src/lib/app-params.js` (decision B.4, round 3), and remove the Base44 packages. This happens only after a grep shows no remaining imports or references and the build, lint and tests pass. The originals stay in the ZIP and in `original-base44`.
 
-**Tests:** `node:test` + `supertest` in `server/test`, running against the local Supabase database. On the frontend, the existing `npm run lint` and `npm run build`, plus manual and browser checks of each route on staging.
+**Tests (round 4, cloud only):** `node:test` + `supertest` in `server/test`.
+- They run against the **hosted staging Supabase project**, from GitHub Actions (`ubuntu-latest`, Node 22) and, optionally, from this machine with a git-ignored `server/.env.staging`.
+- Every test run is guarded: it refuses unless `SUPABASE_PROJECT_ID` equals the staging ref in `targets.json` and `APP_ENV=staging`.
+- Each run creates its own data under a unique run prefix (`t_<runid>_`): test users, products and shifts. It deletes that data afterwards, and a sweep removes leftovers from crashed runs that are older than 24 h.
+- CI serializes runs (one at a time) so tests never collide.
+- Frontend: `npm run lint` and `npm run build` in CI on Linux, plus a Vercel preview build per pull request.
+- Then manual and browser checks of every route on the staging deployment.
+- Details are in checklist section D.
+
+**Currency (round 4).**
+- One store currency per deployment: `CURRENCY` on the server and `VITE_CURRENCY` in the browser, which must match (the server reports its value in `/api/auth/me`).
+- The minor unit comes from ISO 4217 via `Intl.NumberFormat(…).resolvedOptions().maximumFractionDigits`.
+- The schema stores money as `numeric(12,2)`, so currencies with **0 or 2** minor digits are supported (USD, EUR, GBP, NGN, JPY, …). For 0-digit currencies, the server rejects amounts with fractions.
+- 3-digit currencies (KWD, BHD, …) are refused at boot. Supporting them would need a schema change.
+- `formatMoney` uses `Intl.NumberFormat` with that currency, replacing the hard-coded `$`.

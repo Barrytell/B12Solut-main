@@ -1,6 +1,30 @@
 #env
 .env
 .env.*
+!.env.example
+
+# Secrets and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+
+# Supabase CLI local state
+**/supabase/.temp
+**/supabase/.branches
+
+# Base44 data exports (personal data) and migration logs
+exports/
+base44-export*/
+server/scripts/logs/
+
+# Backups and dumps
+*.zip
+*.dump
+*.sql.gz
+coverage/
 
 # Logs
 /logs
