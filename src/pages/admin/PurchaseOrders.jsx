@@ -1,11 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { FileDown, Printer, Package, AlertTriangle, Truck, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileDown, Package, Truck, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
 import { generatePurchaseOrderPDF } from '@/utils/purchaseOrderPDF';
 
 export default function PurchaseOrders() {

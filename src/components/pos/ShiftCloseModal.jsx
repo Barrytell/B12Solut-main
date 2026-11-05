@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, DollarSign, Banknote, CreditCard, Smartphone, AlertTriangle, CheckCircle, Loader2, Receipt, TrendingUp, Download } from 'lucide-react';
+import { X, DollarSign, Banknote, CreditCard, Smartphone, CheckCircle, Loader2, Receipt, TrendingUp, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

@@ -1,10 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { TrendingUp, TrendingDown, Minus, RefreshCw, CheckCircle, AlertCircle, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, RefreshCw, CheckCircle, AlertCircle, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { computeForecast } from '@/utils/demandForecast';
 import { toast } from 'sonner';

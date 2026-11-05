@@ -2,7 +2,6 @@ import React from 'react';
 import { Minus, Plus, Trash2, ShoppingCart, Tag } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 
 export default function Cart({ items, subtotal, taxTotal, discount, grandTotal, onUpdateQuantity, onRemoveItem, onSetDiscount, onCheckout, title = 'Current Sale', customerName, onSetCustomerName }) {
   return (

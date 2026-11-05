@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { useOutletContext } from 'react-router-dom';
 import ProductSearch from '@/components/pos/ProductSearch';
-import Cart from '@/components/pos/Cart';
+import Cart from '@/components/pos/cart';
 import PaymentModal from '@/components/pos/PaymentModal';
 import ReceiptModal from '@/components/pos/ReceiptModal';
 import SaleTypeToggle from '@/components/pos/SaleTypeToggle';

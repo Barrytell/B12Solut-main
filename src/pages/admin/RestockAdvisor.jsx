@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Send, PackageSearch, Loader2, RefreshCw } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import MessageBubble from '@/components/restock/MessageBubble';
 
 const SUGGESTED_PROMPTS = [

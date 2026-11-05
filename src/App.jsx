@@ -34,7 +34,7 @@ import WholesaleDashboard from '@/pages/admin/WholesaleDashboard';
 // POS pages
 import SaleTypeChooser from '@/pages/pos/SaleTypeChooser';
 import PointOfSale from '@/pages/pos/PointOfSale';
-import WholesaleSale from '@/pages/pos/WholesaleSale';
+import WholesaleSale from '@/pages/pos/wholesaleSale';
 import SalesHistory from '@/pages/pos/SalesHistory';
 import MyShift from '@/pages/pos/MyShift';
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { DollarSign, ShoppingCart, Package, AlertTriangle, TrendingUp, Users, RotateCcw } from 'lucide-react';
+import { DollarSign, AlertTriangle, TrendingUp, Users, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import StatCard from '@/components/shared/StatCard';

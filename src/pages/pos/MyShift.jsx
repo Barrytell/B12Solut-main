@@ -6,7 +6,6 @@ import { format } from 'date-fns';
 import { Clock, DollarSign, CreditCard, Smartphone, Banknote, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StatCard from '@/components/shared/StatCard';
-import { toast } from 'sonner';
 import ShiftCloseModal from '@/components/pos/ShiftCloseModal';
 
 export default function MyShift() {
