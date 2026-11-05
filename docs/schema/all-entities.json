@@ -1,0 +1,809 @@
+{
+  "app": "B12 Store Solution",
+  "note": "Consolidated Base44 entity schemas. One entry per table; copy an entry to base44/entities/<Name>.jsonc to create that table. Built-in fields (id, created_date, updated_date, created_by_id) are added automatically.",
+  "entities": {
+    "User": {
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "The role of the user in the app",
+          "enum": [
+            "admin",
+            "user"
+          ]
+        },
+        "display_name": {
+          "type": "string",
+          "description": "Full name the user enters on the signup form"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "name": "User",
+      "type": "object"
+    },
+    "Category": {
+      "name": "Category",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Category name"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "rls": {
+        "create": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "read": {},
+        "update": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "delete": {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      }
+    },
+    "Supplier": {
+      "name": "Supplier",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Supplier company name"
+        },
+        "contact_name": {
+          "type": "string",
+          "description": "Primary contact person"
+        },
+        "email": {
+          "type": "string",
+          "description": "Contact email"
+        },
+        "phone": {
+          "type": "string",
+          "description": "Contact phone number"
+        },
+        "address": {
+          "type": "string",
+          "description": "Business address"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes about the supplier"
+        },
+        "is_active": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether supplier is active"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "rls": {
+        "create": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "read": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "update": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "delete": {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      }
+    },
+    "Product": {
+      "name": "Product",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Product name",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "sku": {
+          "type": "string",
+          "description": "Stock Keeping Unit code",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "barcode": {
+          "type": "string",
+          "description": "UPC/EAN barcode number",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "category": {
+          "type": "string",
+          "description": "Product category",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "selling_price": {
+          "type": "number",
+          "description": "Retail selling price to customer",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "wholesale_price": {
+          "type": "number",
+          "default": 0,
+          "description": "Wholesale (bulk) price per unit. Retail price is used when this is unset",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "cost_price": {
+          "type": "number",
+          "description": "Cost price from supplier for margin tracking",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "stock_quantity": {
+          "type": "number",
+          "description": "Current stock quantity"
+        },
+        "low_stock_threshold": {
+          "type": "number",
+          "default": 10,
+          "description": "Alert when stock falls below this",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "tax_rate": {
+          "type": "number",
+          "default": 0,
+          "description": "Tax rate percentage (e.g. 10 for 10%)",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "is_active": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether product is available for sale",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "image_url": {
+          "type": "string",
+          "description": "Product image URL",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        },
+        "supplier_id": {
+          "type": "string",
+          "description": "ID of the linked supplier",
+          "rls": {
+            "update": {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "name",
+        "selling_price",
+        "sku"
+      ],
+      "rls": {
+        "create": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "read": {
+          "$or": [
+            {
+              "data.is_active": true
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "update": {
+          "$or": [
+            {
+              "user_condition": {
+                "role": "user"
+              }
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "delete": {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      }
+    },
+    "Shift": {
+      "name": "Shift",
+      "type": "object",
+      "properties": {
+        "cashier_email": {
+          "type": "string",
+          "description": "Cashier's email"
+        },
+        "cashier_name": {
+          "type": "string",
+          "description": "Cashier's name"
+        },
+        "start_time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the shift started"
+        },
+        "end_time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the shift ended"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "default": "open"
+        },
+        "total_cash_sales": {
+          "type": "number",
+          "default": 0
+        },
+        "total_card_sales": {
+          "type": "number",
+          "default": 0
+        },
+        "total_electronic_sales": {
+          "type": "number",
+          "default": 0
+        },
+        "total_revenue": {
+          "type": "number",
+          "default": 0
+        },
+        "total_transactions": {
+          "type": "number",
+          "default": 0
+        },
+        "total_cost": {
+          "type": "number",
+          "default": 0
+        },
+        "total_profit": {
+          "type": "number",
+          "default": 0
+        }
+      },
+      "required": [
+        "cashier_email",
+        "start_time",
+        "status"
+      ],
+      "rls": {
+        "create": {
+          "$or": [
+            {
+              "data.cashier_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "read": {
+          "$or": [
+            {
+              "data.cashier_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "update": {
+          "$or": [
+            {
+              "data.cashier_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "delete": {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      }
+    },
+    "Transaction": {
+      "name": "Transaction",
+      "type": "object",
+      "properties": {
+        "transaction_number": {
+          "type": "string",
+          "description": "Unique transaction ID (TX- for retail sales, WS- for wholesale orders)"
+        },
+        "sale_type": {
+          "type": "string",
+          "enum": [
+            "retail",
+            "wholesale"
+          ],
+          "default": "retail",
+          "description": "Whether this was a standard retail sale or a wholesale/bulk order"
+        },
+        "customer_name": {
+          "type": "string",
+          "description": "Wholesale customer or business name (bulk orders only)"
+        },
+        "cashier_email": {
+          "type": "string",
+          "description": "Email of the cashier who processed the sale"
+        },
+        "cashier_name": {
+          "type": "string",
+          "description": "Name of the cashier"
+        },
+        "items": {
+          "type": "array",
+          "description": "List of items in this transaction",
+          "items": {
+            "type": "object",
+            "properties": {
+              "product_id": {
+                "type": "string"
+              },
+              "product_name": {
+                "type": "string"
+              },
+              "sku": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": "number"
+              },
+              "unit_price": {
+                "type": "number"
+              },
+              "cost_price": {
+                "type": "number"
+              },
+              "tax_rate": {
+                "type": "number"
+              },
+              "tax_amount": {
+                "type": "number"
+              },
+              "line_total": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "subtotal": {
+          "type": "number",
+          "description": "Total before tax"
+        },
+        "tax_total": {
+          "type": "number",
+          "description": "Total tax amount"
+        },
+        "discount_amount": {
+          "type": "number",
+          "default": 0,
+          "description": "Discount applied"
+        },
+        "grand_total": {
+          "type": "number",
+          "description": "Final total after tax and discounts"
+        },
+        "total_cost": {
+          "type": "number",
+          "description": "Total cost of goods sold"
+        },
+        "gross_profit": {
+          "type": "number",
+          "description": "Gross profit (grand_total - total_cost)"
+        },
+        "payment_method": {
+          "type": "string",
+          "enum": [
+            "cash",
+            "card",
+            "electronic"
+          ],
+          "description": "Payment method used"
+        },
+        "amount_paid": {
+          "type": "number",
+          "description": "Amount paid by customer"
+        },
+        "change_given": {
+          "type": "number",
+          "description": "Change returned to customer"
+        },
+        "shift_id": {
+          "type": "string",
+          "description": "ID of the cashier shift"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "refunded",
+            "voided"
+          ],
+          "default": "completed"
+        }
+      },
+      "required": [
+        "transaction_number",
+        "cashier_email",
+        "grand_total",
+        "payment_method"
+      ],
+      "rls": {
+        "create": {
+          "$or": [
+            {
+              "data.cashier_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "read": {
+          "$or": [
+            {
+              "data.cashier_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "update": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "delete": {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      }
+    },
+    "Return": {
+      "name": "Return",
+      "type": "object",
+      "properties": {
+        "return_number": {
+          "type": "string",
+          "description": "Unique return reference (e.g. RT-XXXX)"
+        },
+        "original_transaction_number": {
+          "type": "string",
+          "description": "Receipt number of the original sale, when provided"
+        },
+        "cashier_email": {
+          "type": "string",
+          "description": "Email of the user who processed the return"
+        },
+        "cashier_name": {
+          "type": "string",
+          "description": "Name of the user who processed the return"
+        },
+        "items": {
+          "type": "array",
+          "description": "Returned line items",
+          "items": {
+            "type": "object",
+            "properties": {
+              "product_id": {
+                "type": "string"
+              },
+              "product_name": {
+                "type": "string"
+              },
+              "sku": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": "number"
+              },
+              "unit_price": {
+                "type": "number"
+              },
+              "cost_price": {
+                "type": "number"
+              },
+              "refund_amount": {
+                "type": "number"
+              },
+              "condition": {
+                "type": "string",
+                "enum": [
+                  "good",
+                  "damaged"
+                ],
+                "description": "good = returned to inventory, damaged = written off"
+              },
+              "restocked": {
+                "type": "boolean"
+              },
+              "cost_recovered": {
+                "type": "number"
+              },
+              "cost_lost": {
+                "type": "number"
+              },
+              "profit_impact": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        "total_refund": {
+          "type": "number",
+          "description": "Total amount refunded to the customer"
+        },
+        "total_cost_recovered": {
+          "type": "number",
+          "description": "Cost value returned to inventory from good items"
+        },
+        "total_cost_lost": {
+          "type": "number",
+          "description": "Cost value written off for damaged items"
+        },
+        "profit_impact": {
+          "type": "number",
+          "description": "Negative effect of this return on profit"
+        },
+        "refund_method": {
+          "type": "string",
+          "enum": [
+            "cash",
+            "card",
+            "electronic",
+            "store_credit"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason for the return"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "processed",
+            "voided"
+          ],
+          "default": "processed"
+        }
+      },
+      "required": [
+        "return_number",
+        "cashier_email",
+        "total_refund",
+        "refund_method"
+      ],
+      "rls": {
+        "create": {
+          "$or": [
+            {
+              "data.cashier_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "read": {
+          "$or": [
+            {
+              "data.cashier_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "update": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "delete": {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      }
+    },
+    "StockAdjustment": {
+      "name": "StockAdjustment",
+      "type": "object",
+      "properties": {
+        "product_id": {
+          "type": "string",
+          "description": "ID of the product adjusted"
+        },
+        "product_name": {
+          "type": "string",
+          "description": "Product name at time of adjustment"
+        },
+        "sku": {
+          "type": "string",
+          "description": "Product SKU"
+        },
+        "previous_quantity": {
+          "type": "number",
+          "description": "Stock before adjustment"
+        },
+        "new_quantity": {
+          "type": "number",
+          "description": "Stock after adjustment"
+        },
+        "delta": {
+          "type": "number",
+          "description": "Change amount (new - previous)"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason for the manual adjustment"
+        },
+        "user_email": {
+          "type": "string",
+          "description": "Email of user who made the change"
+        },
+        "user_name": {
+          "type": "string",
+          "description": "Name of user who made the change"
+        }
+      },
+      "required": [
+        "product_id",
+        "product_name",
+        "previous_quantity",
+        "new_quantity",
+        "reason",
+        "user_email"
+      ],
+      "rls": {
+        "create": {
+          "$or": [
+            {
+              "data.user_email": "{{user.email}}"
+            },
+            {
+              "user_condition": {
+                "role": "admin"
+              }
+            }
+          ]
+        },
+        "read": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "update": {
+          "user_condition": {
+            "role": "admin"
+          }
+        },
+        "delete": {
+          "user_condition": {
+            "role": "admin"
+          }
+        }
+      }
+    }
+  }
+}
