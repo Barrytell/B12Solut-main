@@ -1,0 +1,4 @@
+{
+  "staging": "YOUR_STAGING_SUPABASE_PROJECT_ID",
+  "production": "YOUR_PRODUCTION_SUPABASE_PROJECT_ID"
+}

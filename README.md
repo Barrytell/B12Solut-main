@@ -63,6 +63,7 @@ Set the **Preview** scope to the staging values and the **Production** scope to 
 | `SUPABASE_SECRET_KEY` | yes | `YOUR_SUPABASE_SECRET_KEY` | Supabase → API Keys → Secret (`sb_secret_…`), the service-role/secret key. **Backend only** |
 | `DATABASE_URL` | yes | `postgresql://postgres.YOUR_SUPABASE_PROJECT_ID:YOUR_DATABASE_PASSWORD@YOUR_SUPABASE_POOLER_HOST:5432/postgres?sslmode=require` | Supabase → Connect → **Session pooler** (IPv4) |
 | `DATABASE_POOL_MAX` | no | `10` | |
+| `DATABASE_CA_CERT` | yes | `YOUR_SUPABASE_DATABASE_CA_CERTIFICATE_PEM` | Supabase → Database → Settings → SSL Configuration → Download certificate. Paste the PEM text; it is public, not secret. Used to verify the database TLS certificate |
 | `STORAGE_PRODUCT_IMAGES_BUCKET` | no | `product-images` | Public-read bucket |
 | `STORAGE_SHIFT_REPORTS_BUCKET` | no | `shift-reports` | Private bucket |
 | `RESEND_API_KEY` | yes | `YOUR_RESEND_API_KEY` | Resend → API Keys (sending access) |
