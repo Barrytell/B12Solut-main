@@ -41,6 +41,9 @@ All of these are in PHASE2-DESIGN.md.
 2. ✅ Secret check before the baseline commit: no `.env`, key files or credential strings.
 3. ✅ Baseline commit `27c20f7` on `main`, tagged `original-base44`. **Never modified.**
 4. ✅ Branch `migration/supabase`; all work happens here.
+   - On 2026-11-05 you committed the docs as "First commit", renamed this branch to `main` and pushed it to `github.com/Barrytell/B12Solut-main`.
+   - `migration/supabase` was recreated locally from that `main` (`8fcbdcf`).
+   - The untouched baseline is still `27c20f7`, tagged `original-base44`. The tag exists **locally only**; it hasn't been pushed.
 5. `OAuthConsent.jsx` and `app-params.js` are deleted **on the branch only**, after a grep shows no references and build, lint and tests pass. They stay in the ZIP and the tag.
 6. The ZIP's SHA-256 is re-checked at handover (10.3).
 
@@ -58,44 +61,70 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - [x] 0.2 Secret check, baseline, tag, branch (B.2–4)
 - [x] 0.3a Extended `.gitignore` (A13, A16)
 - [x] 0.3b `/.env.example`, `server/.env.example` and the README environment reference (A16). *Placeholders only.*
-- [ ] 0.4 `scripts/check-secrets.mjs` + pre-commit hook. *Done when:* a planted fake key blocks a commit.
-- [ ] 0.5 `npm ci`; record the current lint and build output as the "before" state.
+- [x] 0.4 `scripts/check-secrets.mjs` + `.githooks/pre-commit` (`git config core.hooksPath .githooks`).
+  - A planted fake Anthropic key blocked a commit.
+  - The hook also caught a fake key in a test file during a real commit; that was fixed.
+  - Full-history scan: clean.
+- [x] 0.5 "Before" state, recorded on 2026-11-06 with `npm install`. There was no lockfile, so `package-lock.json` was added.
+  - Build **failed**: `base44Client` missing, and the `SaleTerminal` case mismatch.
+  - Lint **failed**: 21 unused imports.
 
 ### Stage 1 — Frontend build blockers (no cloud needed)
 
-- [ ] 1.1 Import case fixes (SaleTerminal ×2, Cart, WholesaleSale).
-- [ ] 1.2 ESLint import-case rule. *Done when:* the Linux build passes in CI (Stage 7) and `npm run build` passes here.
+- [x] 1.1 Import case fixes (SaleTerminal ×2, Cart, WholesaleSale), plus the 21 unused imports removed (`eslint --fix`, import lines only). `npm run lint` now passes.
+- [x] 1.2 Import-case check: `scripts/check-import-case.mjs` (dependency-free, part of `npm run lint`) instead of an ESLint plugin.
+  - Verified that it catches a planted wrong-case import.
+  - Its only remaining failures are the 33 `@/api/base44Client` imports, which Stage 6 replaces.
+  - The build passes only after Stage 6; the Linux build check comes with CI (Stage 7).
 
 ### Stage 2 — Server foundation (no cloud needed)
 
-- [ ] 2.1 `server/package.json` (Node ≥ 22, pinned versions, lockfile committed), Express app:
+*Stage 2 status (2026-11-06): 2.1–2.7 done; 28 server unit tests + 5 script tests pass. 2.5 is unit-tested with a fake token verifier; the real Supabase `getClaims` is verified on staging (Stage 5).*
+
+- [x] 2.1 `server/package.json` (Node ≥ 22, pinned versions, lockfile committed), Express app:
   - `helmet`, CORS allow-list with the Vercel preview pattern, 100 kB JSON limit, `trust proxy`;
   - `pino-http` with redaction;
   - central error handler.
-- [ ] 2.2 **Config validation:**
+- [x] 2.2 **Config validation** (also requires `DATABASE_CA_CERT`, so database TLS is verified):
   - every required variable present and not a `YOUR_…` placeholder;
   - `APP_ENV` is `staging` or `production`;
   - the `SUPABASE_PROJECT_ID` value matches the host in `SUPABASE_URL` and the user in `DATABASE_URL`;
   - `CURRENCY` is supported.
   - *Done when:* unit tests cover each refusal.
-- [ ] 2.3 `money.js` (A7, A17). *Done when:* unit tests pass:
+- [x] 2.3 `money.js` (A7, A17). *Done when:* unit tests pass:
   - `0.1 + 0.2`;
   - 3-dp quantities;
   - half-way rounding;
   - 10¹⁰ scale;
   - JPY (0 dp);
   - KWD refused.
-- [ ] 2.4 `target-guard.js` + `targets.json` (A9). *Done when:* T22's unit cases pass using fake URLs, with no database.
-- [ ] 2.5 `requireAuth` (JWKS from `SUPABASE_URL`, `app_users` by `auth_user_id` only) and `requireAdmin`.
-- [ ] 2.6 Rate limits; `GET /health`; `PORT` from the environment, bound to `0.0.0.0`.
-- [ ] 2.7 `scripts/check-public-env.mjs`, run before `vite build`. It fails if a `VITE_` name contains `SECRET`, `SERVICE`, `PASSWORD` or `PRIVATE`, or a value looks like `sb_secret_`, `sk-ant-`, `re_` or a JWT with `service_role`.
+- [x] 2.4 `target-guard.js` + `targets.json` (A9). *Done when:* T22's unit cases pass using fake URLs, with no database.
+- [x] 2.5 `requireAuth` (JWKS from `SUPABASE_URL`, `app_users` by `auth_user_id` only) and `requireAdmin`.
+- [x] 2.6 Rate limits (general 300/min; per-route limits are added with their routes); `GET /health`; `PORT` from the environment, bound to `0.0.0.0`.
+- [x] 2.7 `scripts/check-public-env.mjs`, run before `vite build` (verified: a planted `VITE_SUPABASE_SECRET_KEY` is refused). It fails if a `VITE_` name contains `SECRET`, `SERVICE`, `PASSWORD` or `PRIVATE`, or a value looks like `sb_secret_`, `sk-ant-`, `re_` or a JWT with `service_role`.
 
 ### Stage 3 — Database migrations written (no cloud needed to write)
 
-- [ ] 3.1 `server/supabase/migrations/0001_schema.sql`: 10 tables, S1–S10, S12–S14, `numeric(12,2)`.
-- [ ] 3.2 `0002_security.sql`: RLS on, no policies, `REVOKE ALL` from `anon` and `authenticated`.
-- [ ] 3.3 `0003_storage.sql`: `product-images` public with no `storage.objects` policies; `shift-reports` private; MIME and size limits.
-- [ ] 3.4 `server/supabase/test-fixtures/`: the rollback trigger and its cleanup. **Staging only**; it lives outside `migrations/` and is installed by the test runner behind the guard.
+*Stage 3 status (2026-11-06):*
+- *All files are written and pass the real Postgres parser (`libpg-query`, syntax only).*
+- *Not yet checked: function bodies, and references to `auth.users` and `storage.buckets`. These are checked when the files are applied to staging in 4.1.*
+- *Supabase CLI file names use timestamps (`YYYYMMDDHHMMSS_name.sql`).*
+
+- [x] 3.1 `server/supabase/migrations/20261106000100_schema.sql`:
+  - 10 tables, S1–S8, S12–S14, `numeric(12,2)`; S10 (`sale_type` null) is handled by the import.
+  - Adds `UNIQUE(transaction_id, line_no)` and `UNIQUE(return_id, line_no)`.
+  - The `updated_date` trigger honours `b12.preserve_updated_date` so the import keeps original timestamps.
+- [x] 3.2 `20261106000200_security.sql`:
+  - RLS on, no policies, `REVOKE ALL` from `anon` and `authenticated`;
+  - default privileges revoked for future objects;
+  - RLS deliberately not FORCEd, because the API is the table owner.
+- [x] 3.3 `20261106000300_storage.sql`:
+  - `product-images`: public, PNG/JPEG/WebP/GIF, 5 MB. SVG is excluded because it can carry scripts.
+  - `shift-reports`: private, PDF, 10 MB.
+  - No `storage.objects` policies.
+- [x] 3.4 `server/supabase/test-fixtures/force-rollback.sql` + `remove-force-rollback.sql`.
+  - **Staging only**, outside `migrations/`.
+  - It fires only on rows marked `__force_rollback__`.
 
 ### Stage 4 — Staging Supabase (needs H.1)
 
