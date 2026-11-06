@@ -83,7 +83,12 @@ These go in GitHub → Settings → Environments → `staging` → Secrets, or i
 | all backend variables above | staging values | Tests refuse to run unless `APP_ENV=staging` and the project ID equals the staging entry in `server/scripts/targets.json` |
 | `SUPABASE_ACCESS_TOKEN` | `YOUR_SCOPED_SUPABASE_ACCESS_TOKEN` | A **scoped** personal access token, limited to the staging project. Used by `supabase db push --linked` and the advisors |
 | `SUPABASE_DB_PASSWORD` | `YOUR_DATABASE_PASSWORD` | For the Supabase CLI |
-| `TEST_EMAIL_RECIPIENT` | `delivered@resend.dev` | Resend test address for automated email tests |
+| `SUPABASE_PUBLISHABLE_KEY` | `YOUR_STAGING_SUPABASE_PUBLISHABLE_KEY` | Integration tests only: they sign in as test users and probe the Data API lockdown |
+| `STAGING_API_URL`, `STAGING_FRONTEND_ORIGIN` | `https://…` | Optional: smoke test of the deployed staging API (T24). In GitHub these are environment **variables**, not secrets |
+| `RUN_AI_TESTS` | `0` | `1` also runs the Restock Advisor tests (real Anthropic calls, a few cents) |
+| `TEST_SALES_COUNT` | `1000` | Random sales in the money-precision test (T21) |
+
+Integration tests (`npm run test:integration` in `server/`, or Actions → "Staging integration tests") write and delete their own prefixed test data on **staging only**. They capture every email in memory, so nothing is sent.
 
 `server/scripts/targets.json` (committed, not secret) holds `{"staging": "YOUR_STAGING_PROJECT_ID", "production": "YOUR_PRODUCTION_PROJECT_ID"}`.
 

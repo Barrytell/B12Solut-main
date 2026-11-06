@@ -212,7 +212,13 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - *`docs/deploy/DEPLOYMENT.md`: step-by-step staging setup.*
 - *`server/scripts/create-first-admin.js` bootstraps the first admin, since sign-ups are off. It's guarded, dry-run by default, refuses if an admin exists, and sends a real email only with your approval.*
 - *Both workflow files parse as YAML. They haven't been run on GitHub.*
-- *The staging integration suite and its CI job come next (T2–T9, T12, T14–T17, T21).*
+- *Staging integration suite **written, not yet run**: 41 tests in `server/test/integration/`.*
+  - *They run via `npm run test:integration` (reads a git-ignored `server/.env.staging`) or Actions → "Staging integration tests" (manual only, serialized with migrations).*
+  - *Coverage: T2, T3, T5–T10, T11(b), T12, T14–T18, T21, T24, plus the D3 audit, category and wholesale checks.*
+  - *Every file refuses unless all settings point at the staging project. Verified: without staging settings all 34 runnable tests refuse.*
+  - *Email is captured in memory, so nothing is sent. Invites use `generateLink`. The AI tests (T18) are opt-in, and so is the deployed-API smoke test (T24).*
+  - *The rollback tests (T7) install `supabase/test-fixtures/force-rollback.sql` for the run and always remove it.*
+- *Security review fix: `db-staging.yml` pins `supabase/setup-cli` to a commit SHA, passes secrets only to the steps that need them, and checks `SUPABASE_PROJECT_ID` too before linking.*
 
 - [ ] 7.1 `.github/workflows/ci.yml`:
   - lint, `check-public-env`, build;

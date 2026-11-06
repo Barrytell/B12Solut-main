@@ -1,0 +1,58 @@
+# Integration suite against the STAGING Supabase project (and, if configured,
+# the deployed staging API). Manual only: it writes and deletes test data on
+# staging, so it never runs on its own. Never points at production: the suite
+# refuses unless every setting matches the staging entry in targets.json.
+name: Staging integration tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      ai:
+        description: "Also run the Restock Advisor tests (real Anthropic calls, a few cents)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-db # never at the same time as migrations or another run
+  cancel-in-progress: false
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Integration tests (staging)
+        run: npm run test:integration
+        env:
+          APP_ENV: ${{ secrets.APP_ENV }}
+          CURRENCY: ${{ secrets.CURRENCY }}
+          STORE_TIMEZONE: ${{ secrets.STORE_TIMEZONE }}
+          APP_URL: ${{ secrets.APP_URL }}
+          FRONTEND_ORIGINS: ${{ secrets.FRONTEND_ORIGINS }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_CA_CERT: ${{ secrets.DATABASE_CA_CERT }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
+          STAGING_API_URL: ${{ vars.STAGING_API_URL }}
+          STAGING_FRONTEND_ORIGIN: ${{ vars.STAGING_FRONTEND_ORIGIN }}
+          RUN_AI_TESTS: ${{ inputs.ai && '1' || '0' }}

@@ -46,8 +46,14 @@ procedure on separate projects and is done **only with your explicit approval** 
    - `APP_ENV` = `staging`
    - `SUPABASE_URL`, `SUPABASE_PROJECT_ID`, `DATABASE_URL`
    - `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`
-3. Never create a `production` environment holding production database secrets for CI. Production migrations are run by hand, with your approval.
-4. The **CI** workflow (`.github/workflows/ci.yml`) runs automatically on every push and pull request, with no secrets:
+3. For the **staging integration tests**, add to the same environment:
+   - every backend variable from the README table, with staging values, as secrets;
+   - `SUPABASE_PUBLISHABLE_KEY`;
+   - optionally the environment **variables** `STAGING_API_URL` and `STAGING_FRONTEND_ORIGIN`.
+
+   Run them from Actions → **"Staging integration tests"**. They're manual only. They write and remove prefixed test data on staging and never send email.
+4. Never create a `production` environment holding production database secrets for CI. Production migrations are run by hand, with your approval.
+5. The **CI** workflow (`.github/workflows/ci.yml`) runs automatically on every push and pull request, with no secrets:
    - full-history secret scan;
    - lint plus the Linux case-sensitive import check;
    - script tests (including browser/server money parity);

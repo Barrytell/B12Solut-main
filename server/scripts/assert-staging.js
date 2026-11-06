@@ -4,7 +4,10 @@
 import { assertStagingTestTarget, loadTargets } from './lib/target-guard.js';
 
 try {
-  assertStagingTestTarget(process.env, loadTargets());
+  const targets = loadTargets();
+  assertStagingTestTarget(process.env, targets);
+  // `supabase link` uses SUPABASE_PROJECT_ID, so it must be the staging project too.
+  if (process.env.SUPABASE_PROJECT_ID !== targets.staging) throw new Error('SUPABASE_PROJECT_ID is not the staging project in targets.json');
   console.log('[guard] staging project confirmed');
 } catch (err) {
   console.error(`[guard] REFUSED: ${err.message}`);
