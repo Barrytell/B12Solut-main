@@ -10,6 +10,8 @@ import { createEntities } from './entities.js';
 import { createStorage } from './storage.js';
 import { adminEmails, createMailer, lowStockEmail } from './email.js';
 import { createAdvisor, createDisabledAdvisor } from './routes/advisor.js';
+import { createPasswordService } from './routes/authRoutes.js';
+import { createClient } from '@supabase/supabase-js';
 
 let config;
 try {
@@ -33,6 +35,7 @@ const services = {
   sendMail,
   fmt: createFormat({ currency: config.currency, timeZone: config.timeZone }),
   authAdmin: supabase.auth.admin,
+  passwords: createPasswordService(supabase, config.supabase, createClient),
   // Optional integration: without ANTHROPIC_API_KEY only the Restock Advisor is disabled.
   advisor: config.anthropic
     ? createAdvisor({

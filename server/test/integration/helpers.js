@@ -4,7 +4,7 @@
 //   scripts/targets.json (assertStagingTestTarget). Never production.
 // - Runs the real Express app in-process against the real staging database,
 //   Supabase Auth and Storage. Email is captured in memory (nothing is sent),
-//   invitations use generateLink (no email), the AI advisor is stubbed
+//   accounts are created with the Auth Admin API (no email), the AI advisor is stubbed
 //   (07-advisor.test.js calls the real API only when RUN_AI_TESTS=1).
 // - All data carries a unique run prefix and is deleted afterwards; sweep()
 //   removes leftovers of crashed runs older than 24 h.
@@ -21,6 +21,7 @@ import { createMoney } from '../../src/lib/money.js';
 import { createFormat } from '../../src/lib/format.js';
 import { createEntities } from '../../src/entities.js';
 import { createStorage } from '../../src/storage.js';
+import { createPasswordService } from '../../src/routes/authRoutes.js';
 
 export const EMAIL_DOMAIN = 'example.com';
 export const PREFIX_ROOT = 't_';
@@ -40,16 +41,12 @@ export async function setup(label) {
 
   const mail = [];
   const lowStock = [];
-  const inviteTokens = new Map();
-  // Same interface the routes use, but no email is ever sent.
+  // Real Auth Admin API: createUser sends no email. deleteUser calls are recorded
+  // so the failure-cleanup test (T31) can see them.
+  const deletedAuthUsers = [];
   const authAdmin = {
-    async inviteUserByEmail(email, { redirectTo }) {
-      const { data, error } = await supabase.auth.admin.generateLink({ type: 'invite', email, options: { redirectTo } });
-      if (data?.properties?.hashed_token) inviteTokens.set(email, data.properties.hashed_token);
-      return { data: data ? { user: data.user } : null, error };
-    },
-    deleteUser: (id) => supabase.auth.admin.deleteUser(id),
-    getUserById: (id) => supabase.auth.admin.getUserById(id),
+    createUser: (attrs) => supabase.auth.admin.createUser(attrs),
+    deleteUser: (id) => { deletedAuthUsers.push(id); return supabase.auth.admin.deleteUser(id); },
   };
 
   const services = {
@@ -59,6 +56,7 @@ export async function setup(label) {
     sendMail: async (msg) => { mail.push(msg); },
     fmt: createFormat({ currency: config.currency, timeZone: config.timeZone }),
     authAdmin,
+    passwords: createPasswordService(supabase, config.supabase, createClient),
     advisor: { chat: async () => ({ role: 'assistant', content: 'stub', tool_calls: [] }) },
     notifyLowStock: async (alerts) => { lowStock.push(alerts); },
   };
@@ -67,7 +65,7 @@ export async function setup(label) {
 
   const anon = () => createClient(config.supabase.url, publishableKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const ctx = {
-    P, config, db, supabase, money, storage, services, app, mail, lowStock, inviteTokens, anon,
+    P, config, db, supabase, money, storage, services, app, mail, lowStock, deletedAuthUsers, anon,
     authUserIds: [], emails: [], storagePaths: [],
     api: (method, path, token) => {
       const r = request(app)[method](path);
@@ -124,6 +122,9 @@ export async function startShift(ctx, token) {
 export async function cleanup(ctx) {
   if (!ctx) return; // setup was refused (not staging): nothing was created
   const like = `${ctx.P.replace(/_/g, '\\_')}%`;
+  // Auth accounts created through POST /api/users during the run
+  const linked = await ctx.db.query('SELECT auth_user_id FROM public.app_users WHERE email LIKE $1 AND auth_user_id IS NOT NULL', [like]);
+  for (const r of linked.rows) if (!ctx.authUserIds.includes(r.auth_user_id)) ctx.authUserIds.push(r.auth_user_id);
   await deleteByPattern(ctx.db, like);
   if (ctx.storagePaths.length) {
     const byBucket = Object.groupBy(ctx.storagePaths, (p) => p.bucket);

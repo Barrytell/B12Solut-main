@@ -76,7 +76,7 @@ test('cashier cannot read suppliers or the stock audit log', async () => {
 
 test('admin-only endpoints refuse cashiers: returns (D2), inventory, users, uploads, advisor', async () => {
   const { app } = build();
-  for (const path of ['/api/returns', '/api/inventory/update', '/api/inventory/bulk-stock', '/api/users/invite',
+  for (const path of ['/api/returns', '/api/inventory/update', '/api/inventory/bulk-stock', '/api/users',
     '/api/uploads/product-image', '/api/restock-advisor/chat']) {
     assert.equal((await request(app).post(path).set(as('cashier')).send({})).status, 403, path);
   }

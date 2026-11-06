@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ShoppingCart, Package, Receipt, Clock, TrendingUp, Users, Store, Bot, Truck, Warehouse, ClipboardList, BarChart2, Tags } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Package, Receipt, Clock, TrendingUp, Users, Store, Bot, Truck, Warehouse, ClipboardList, BarChart2, Tags, KeyRound, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/AuthContext';
 
 const adminLinks = [
   { path: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
@@ -29,6 +30,7 @@ const cashierLinks = [
 
 export default function MobileNav({ userRole }) {
   const location = useLocation();
+  const { logout } = useAuth();
   const links = userRole === 'admin' ? adminLinks : cashierLinks;
 
   return (
@@ -40,6 +42,14 @@ export default function MobileNav({ userRole }) {
             <Store className="w-4 h-4 text-primary-foreground" />
           </div>
           <span className="font-bold text-sm">RetailHub</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <Link to="/change-password" aria-label="Change password" className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted">
+            <KeyRound className="w-5 h-5" />
+          </Link>
+          <button onClick={() => logout()} aria-label="Log out" className="p-2 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted">
+            <LogOut className="w-5 h-5" />
+          </button>
         </div>
       </div>
       <div className="h-14" />

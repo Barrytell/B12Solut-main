@@ -54,6 +54,12 @@ jobs:
       - name: Bundle contains no Base44 code
         run: |
           if grep -rl "base44" dist/assets; then echo "::error::base44 found in bundle"; exit 1; fi
+      # T36: email and password only. supabase-js itself defines signInWithOAuth,
+      # so the check is that our code never calls it and no provider button exists.
+      - name: No social / OAuth login
+        run: |
+          if grep -rnE "signInWithOAuth|signInWithIdToken|linkIdentity|AUTH_PROVIDERS" src/; then echo "::error::social login code found in src"; exit 1; fi
+          if grep -rlE "Continue with (Google|Apple|Facebook|Microsoft)" dist/assets; then echo "::error::provider button found in bundle"; exit 1; fi
 
   server:
     name: Server unit tests

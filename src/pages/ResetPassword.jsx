@@ -1,18 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Lock, Loader2, AlertTriangle } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 
-// Landing page for both password-reset emails and admin invitations (?invite=1).
-// supabase-js turns the link into a session; the user then sets a password.
+const PASSWORD_OK = (p) => p.length >= 10 && p.length <= 72 && /[A-Za-z]/.test(p) && /\d/.test(p);
+
+// Landing page of the password-reset email. supabase-js turns the link into a
+// short-lived session; the new password is then set through the API, which
+// also clears a pending temporary-password requirement.
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
-  const isInvite = searchParams.get("invite") === "1";
-
   const [status, setStatus] = useState("checking"); // checking | ready | invalid
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -43,17 +45,18 @@ export default function ResetPassword() {
       setError("Passwords do not match");
       return;
     }
-    if (newPassword.length < 8) {
-      setError("Use at least 8 characters");
+    if (!PASSWORD_OK(newPassword)) {
+      setError("Use at least 10 characters, with letters and digits");
       return;
     }
     setLoading(true);
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
-      if (updateError) throw updateError;
+      await api.auth.changePassword({ new_password: newPassword });
       window.location.href = "/";
     } catch (err) {
-      setError(err.message || "Failed to set the password");
+      setError(err?.code === "CURRENT_PASSWORD_REQUIRED"
+        ? "This reset link has expired. Please request a new one."
+        : err?.message || "Failed to set the password");
     } finally {
       setLoading(false);
     }
@@ -61,7 +64,7 @@ export default function ResetPassword() {
 
   if (status === "checking") {
     return (
-      <AuthLayout icon={Lock} title={isInvite ? "Set your password" : "New password"} subtitle="Checking your link…">
+      <AuthLayout icon={Lock} title="New password" subtitle="Checking your link…">
         <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
       </AuthLayout>
     );
@@ -71,31 +74,23 @@ export default function ResetPassword() {
     return (
       <AuthLayout
         icon={AlertTriangle}
-        title={isInvite ? "Invalid invitation link" : "Invalid reset link"}
-        subtitle={isInvite ? "This invitation link has expired or was already used" : "This password reset link has expired or was already used"}
+        title="Invalid reset link"
+        subtitle="This password reset link has expired or was already used"
         footer={
-          isInvite ? <>Ask your store administrator to resend the invitation.</> : (
-            <Link to="/forgot-password" className="text-primary font-medium hover:underline">
-              Request a new link
-            </Link>
-          )
+          <Link to="/forgot-password" className="text-primary font-medium hover:underline">
+            Request a new link
+          </Link>
         }
       >
         <p className="text-sm text-foreground text-center">
-          {isInvite
-            ? "Invitation links work once and expire. A new one can be sent from the Users page."
-            : "The link you used is incomplete, expired or already used. Please request a new password reset email."}
+          The link you used is incomplete, expired or already used. Please request a new password reset email.
         </p>
       </AuthLayout>
     );
   }
 
   return (
-    <AuthLayout
-      icon={Lock}
-      title={isInvite ? "Set your password" : "New password"}
-      subtitle={isInvite ? "Choose a password to finish setting up your account" : "Enter your new password below"}
-    >
+    <AuthLayout icon={Lock} title="New password" subtitle="Enter your new password below">
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
           {error}
@@ -115,6 +110,7 @@ export default function ResetPassword() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               className="pl-10 h-12"
+              maxLength={72}
               required
             />
           </div>
@@ -131,10 +127,12 @@ export default function ResetPassword() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="pl-10 h-12"
+              maxLength={72}
               required
             />
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">At least 10 characters, with letters and digits.</p>
         <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
           {loading ? (
             <>
@@ -142,7 +140,7 @@ export default function ResetPassword() {
               Saving...
             </>
           ) : (
-            isInvite ? "Set password" : "Reset password"
+            "Reset password"
           )}
         </Button>
       </form>

@@ -291,9 +291,18 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - [ ] 11.4 Images and reports migration, then user accounts (reset emails or admin-set initial passwords), with your approval.
 - [ ] 11.5 You add the domain in Vercel; then the README "After adding your domain" updates; then T26 read-only smoke.
 
-### Stage 12 — Round 5 auth rework (**waiting for your approval; no code changed yet**)
+### Stage 12 — Round 5 auth rework (approved 2026-11-06; **code written, not yet run against staging**)
 
-The branch still contains the round-3 implementation: invite emails, a Google button, `VITE_AUTH_PROVIDERS` and `SocialAuthButtons`. After your approval:
+*Status:*
+- *12.1–12.5 are implemented. 66 server unit tests pass (9 new in `auth-rules.test.js`). Lint and build pass. The 45 staging tests refuse correctly without staging settings.*
+- *Local check: the login page shows email, password, Sign in and Forgot password only, `/change-password` redirects to `/login` without a session, and `/reset-password` without a link shows "invalid link".*
+- *Open:*
+  - *T14 confirms on staging that a reset-link session is recognised (`amr` `otp`/`magiclink`).*
+  - *The T35 last-admin case runs on staging only when it's the only admin; it's covered by a unit test.*
+  - *The supabase-js library itself still defines `signInWithOAuth`, so the CI check (T36) asserts our source never calls it and that the bundle has no provider buttons.*
+- *Each item below is ticked once its staging test passes.*
+
+Superseded implementation (round 3): invite emails, the Google button, `VITE_AUTH_PROVIDERS` and `SocialAuthButtons`. Work items:
 
 - [ ] 12.1 Migration `…_must_change_password.sql` (S15). Nothing else in the schema changes.
 - [ ] 12.2 Server:

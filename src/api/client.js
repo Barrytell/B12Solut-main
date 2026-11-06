@@ -59,7 +59,11 @@ export const api = {
   entities: Object.fromEntries(
     ['User', 'Category', 'Supplier', 'Product', 'Transaction', 'Return', 'Shift', 'StockAdjustment'].map((n) => [n, entity(n)]),
   ),
-  auth: { me: () => request('GET', '/api/auth/me') },
+  auth: {
+    me: () => request('GET', '/api/auth/me'),
+    /** current_password may be omitted only in a fresh password-reset session */
+    changePassword: (body) => request('POST', '/api/auth/change-password', { body }),
+  },
   sales: { create: (body) => request('POST', '/api/sales', { body }) },
   returns: { create: (body) => request('POST', '/api/returns', { body }) },
   inventory: {
@@ -73,8 +77,8 @@ export const api = {
     reportUrl: (shiftId) => request('GET', `/api/shifts/${id(shiftId)}/report-url`),
   },
   users: {
-    invite: (body) => request('POST', '/api/users/invite', { body }),
-    resendInvite: (userId) => request('POST', `/api/users/${id(userId)}/resend-invite`, { body: {} }),
+    /** admin only: { full_name, email, password, role } */
+    create: (body) => request('POST', '/api/users', { body }),
   },
   uploads: {
     productImage: (file) => request('POST', '/api/uploads/product-image', { raw: file, contentType: file.type }),

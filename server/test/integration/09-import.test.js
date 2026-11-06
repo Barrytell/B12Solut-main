@@ -51,7 +51,7 @@ test('import commits in one transaction, reconciles exactly and keeps Base44 ids
 
   const user = (await ctx.db.query('SELECT id, created_date, auth_user_id FROM public.app_users WHERE id = $1', [`${ctx.P}u1`])).rows[0];
   assert.equal(user.created_date.toISOString(), '2026-01-01T09:00:00.000Z');
-  assert.equal(user.auth_user_id, null); // linked later by invite-users.js
+  assert.equal(user.auth_user_id, null); // linked later by create-accounts.js
   const items = await ctx.db.query('SELECT line_no, line_total FROM public.transaction_items WHERE transaction_id = $1', [`${ctx.P}t1`]);
   assert.deepEqual(items.rows, [{ line_no: 1, line_total: '5.50' }]);
   const tx = (await ctx.db.query('SELECT sale_type FROM public.transactions WHERE id = $1', [`${ctx.P}t1`])).rows[0];

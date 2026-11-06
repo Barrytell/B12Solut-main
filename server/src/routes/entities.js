@@ -154,12 +154,20 @@ export function entityRouter({ db, entities }) {
       const data = schema.parse(stripPlatform(req.body));
       const name = req.params.entity;
 
-      if (name === 'User' && req.params.id === req.user.id && data.role && data.role !== 'admin') {
-        throw new ApiError(409, 'CANNOT_DEMOTE_SELF', 'You cannot remove your own administrator role');
+      // Nobody changes their own role (an admin changing it can only mean losing it).
+      if (name === 'User' && req.params.id === req.user.id && data.role !== undefined && data.role !== req.user.role) {
+        throw new ApiError(409, 'CANNOT_DEMOTE_SELF', 'You cannot change your own role');
       }
 
       const updated = await withTransaction(db, async (client) => {
         let current;
+        if (name === 'User' && data.role === 'user') {
+          // lock every admin row so two concurrent demotions cannot both pass the check
+          const admins = (await client.query("SELECT id FROM public.app_users WHERE role = 'admin' ORDER BY id FOR UPDATE")).rows;
+          if (admins.length === 1 && admins[0].id === req.params.id) {
+            throw new ApiError(409, 'LAST_ADMIN', 'The store must keep at least one administrator');
+          }
+        }
         if (name === 'Product') {
           current = (await lockProducts(client, [req.params.id])).get(req.params.id);
           if (!current) throw new ApiError(404, 'NOT_FOUND', 'Record not found');

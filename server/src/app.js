@@ -12,13 +12,14 @@ import { returnsRouter } from './routes/returns.js';
 import { inventoryRouter } from './routes/inventory.js';
 import { shiftsRouter } from './routes/shifts.js';
 import { usersRouter } from './routes/users.js';
+import { authRouter } from './routes/authRoutes.js';
 import { uploadsRouter } from './routes/uploads.js';
 import { advisorRouter } from './routes/advisor.js';
 
 /**
  * Builds the Express app. Everything external is injected so tests can run it
  * without a database or network: { config, logger, db, requireAuth, services }.
- * `services` = { money, entities, storage, sendMail, fmt, authAdmin, advisor, notifyLowStock }.
+ * `services` = { money, entities, storage, sendMail, fmt, authAdmin, passwords, advisor, notifyLowStock }.
  */
 export function createApp({ config, logger, db, requireAuth, services }) {
   const app = express();
@@ -32,7 +33,8 @@ export function createApp({ config, logger, db, requireAuth, services }) {
       res.setHeader('x-request-id', id);
       return id;
     },
-    redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+    // request bodies are never logged; passwords are redacted as a second safeguard
+    redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]', 'req.body.password', 'req.body.current_password', 'req.body.new_password'],
     serializers: { req: (r) => ({ id: r.id, method: r.method, url: r.url }) },
     customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info'),
   }));
@@ -67,7 +69,10 @@ export function createApp({ config, logger, db, requireAuth, services }) {
 
   app.get('/api/auth/me', (req, res) => {
     const u = req.user;
-    res.json({ user: { id: u.id, email: u.email, full_name: u.full_name, display_name: u.display_name, role: u.role }, currency: config.currency });
+    res.json({
+      user: { id: u.id, email: u.email, full_name: u.full_name, display_name: u.display_name, role: u.role, must_change_password: u.must_change_password === true },
+      currency: config.currency,
+    });
   });
 
   if (services) {
@@ -77,7 +82,8 @@ export function createApp({ config, logger, db, requireAuth, services }) {
     app.use('/api/shifts', shiftsRouter({ db, money: s.money, storage: s.storage, sendMail: s.sendMail, fmt: s.fmt, config }));
     app.use('/api/returns', requireAdmin, returnsRouter({ db, money: s.money }));
     app.use('/api/inventory', requireAdmin, inventoryRouter({ db, money: s.money }));
-    app.use('/api/users', requireAdmin, usersRouter({ db, authAdmin: s.authAdmin, config }));
+    app.use('/api/auth', authRouter({ db, passwords: s.passwords }));
+    app.use('/api/users', requireAdmin, usersRouter({ db, authAdmin: s.authAdmin }));
     app.use('/api/uploads', requireAdmin, uploadsRouter({ storage: s.storage, config }));
     app.use('/api/restock-advisor', requireAdmin, advisorRouter({ advisor: s.advisor }));
   }

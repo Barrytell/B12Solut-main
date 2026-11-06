@@ -12,6 +12,7 @@ import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
+import ChangePassword from '@/pages/ChangePassword';
 
 // Layout
 import AppLayout from '@/components/layout/AppLayout';
@@ -52,6 +53,8 @@ function App() {
 
             {/* Protected app routes — unauthenticated users redirect to /login */}
             <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
+              {/* outside AppLayout: reachable (and forced) while a temporary password is active */}
+              <Route path="/change-password" element={<ChangePassword />} />
               <Route element={<AppLayout />}>
                 <Route path="/" element={<Navigate to="/pos" replace />} />
 

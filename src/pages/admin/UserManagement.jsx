@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/api/client';
-import { toast } from 'sonner';
 import { Plus, Shield, ShoppingCart } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +26,7 @@ export default function UserManagement() {
           </p>
         </div>
         <Button onClick={() => setShowCreate(!showCreate)} className="rounded-xl">
-          <Plus className="w-4 h-4 mr-2" /> Invite User
+          <Plus className="w-4 h-4 mr-2" /> Create User
         </Button>
       </div>
 
@@ -53,16 +52,9 @@ export default function UserManagement() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs text-muted-foreground"
-                onClick={() => api.users.resendInvite(u.id)
-                  .then(() => toast.success(`Invitation re-sent to ${u.email}`))
-                  .catch((err) => toast.error(err.message))}
-              >
-                Resend invite
-              </Button>
+              {u.must_change_password && (
+                <Badge variant="outline" className="text-[11px] text-muted-foreground">Awaiting first login</Badge>
+              )}
               <Badge variant={u.role === 'admin' ? 'default' : 'secondary'} className="gap-1">
                 {u.role === 'admin' ? <Shield className="w-3 h-3" /> : <ShoppingCart className="w-3 h-3" />}
                 {u.role === 'admin' ? 'Admin' : 'Cashier'}

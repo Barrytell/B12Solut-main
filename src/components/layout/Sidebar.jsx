@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, ShoppingCart, Package, Users, Receipt, 
-  Clock, ChevronLeft, ChevronRight, LogOut, TrendingUp, Store, Bot, Truck, ClipboardList, BarChart2, Tags, Warehouse
+  Clock, ChevronLeft, ChevronRight, LogOut, TrendingUp, Store, Bot, Truck, ClipboardList, BarChart2, Tags, Warehouse, KeyRound
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { cn } from '@/lib/utils';
@@ -90,6 +90,13 @@ export default function Sidebar({ userRole }) {
             {!collapsed && <span>Open POS</span>}
           </Link>
         )}
+        <Link
+          to="/change-password"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all"
+        >
+          <KeyRound className="w-[18px] h-[18px] shrink-0" />
+          {!collapsed && <span>Change Password</span>}
+        </Link>
         <button
           onClick={() => logout()}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground/60 hover:text-destructive hover:bg-sidebar-accent transition-all w-full"

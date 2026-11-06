@@ -1,78 +1,62 @@
-// Admin invitations (D1). Only admins create accounts; the invited person sets
-// their own password through the emailed link. Sign-ups are disabled in Supabase.
+// POST /api/users (admin): an administrator creates an Admin or Cashier
+// account with full name, email, an initial (temporary) password and role.
+// Sign-ups are disabled in Supabase; there is no other way to get an account.
 import { Router } from 'express';
 import { z } from 'zod';
 import { rateLimit } from 'express-rate-limit';
 import { ApiError } from '../errors.js';
 import { emailField } from '../lib/fields.js';
+import { passwordField, isWeakPasswordError } from '../lib/password.js';
 import { serializeOne } from '../lib/serialize.js';
 
-const inviteSchema = z.strictObject({
+const createSchema = z.strictObject({
+  full_name: z.string().trim().min(1, 'Full name is required').max(200),
   email: emailField(),
-  display_name: z.string().trim().max(200).optional(),
-  role: z.enum(['admin', 'user']).default('user'),
+  password: passwordField(),
+  role: z.enum(['admin', 'user']),
 });
 
-const isAlreadyRegistered = (error) => /already (been )?registered|already exists/i.test(error?.message ?? '');
+const isAlreadyRegistered = (error) =>
+  error?.code === 'email_exists' || error?.status === 422 && /already|registered|exists/i.test(error?.message ?? '');
 
-export function usersRouter({ db, authAdmin, config }) {
+export function usersRouter({ db, authAdmin }) {
   const router = Router();
-  const redirectTo = `${config.appUrl}/reset-password?invite=1`;
 
-  router.use(rateLimit({
-    windowMs: 60 * 60_000, limit: 30, keyGenerator: (req) => `invite:${req.user.id}`,
-    handler: (_req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many invitations, try again later' } }),
-  }));
-
-  router.post('/invite', async (req, res, next) => {
-    try {
-      const body = inviteSchema.parse(req.body);
-      const exists = await db.query('SELECT 1 FROM public.app_users WHERE lower(email) = $1', [body.email]);
-      if (exists.rowCount) throw new ApiError(409, 'USER_EXISTS', 'A user with this email already exists');
-
-      const { data, error } = await authAdmin.inviteUserByEmail(body.email, { redirectTo });
-      if (error) {
-        if (isAlreadyRegistered(error)) throw new ApiError(409, 'USER_EXISTS', 'This email already has a sign-in account');
-        req.log?.error({ err: { message: error.message, status: error.status } }, 'invite failed');
-        throw new ApiError(502, 'INVITE_FAILED', 'The invitation email could not be sent');
-      }
-
+  router.post('/',
+    rateLimit({
+      windowMs: 60 * 60_000, limit: 30, keyGenerator: (req) => `create-user:${req.user.id}`,
+      handler: (_req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many accounts created, try again later' } }),
+    }),
+    async (req, res, next) => {
       try {
-        const created = serializeOne(await db.query(
-          `INSERT INTO public.app_users (email, full_name, display_name, role, auth_user_id, created_by_id)
-           VALUES ($1, $2, $2, $3, $4, $5) RETURNING *`,
-          [body.email, body.display_name || null, body.role, data.user.id, req.user.id],
-        ));
-        res.status(201).json(created);
-      } catch (err) {
-        // keep Auth and app_users consistent: undo the auth user if the app row failed
-        await authAdmin.deleteUser(data.user.id).catch(() => {});
-        throw err;
-      }
-    } catch (e) { next(e); }
-  });
+        const body = createSchema.parse(req.body);
+        const exists = await db.query('SELECT 1 FROM public.app_users WHERE lower(email) = $1', [body.email]);
+        if (exists.rowCount) throw new ApiError(409, 'USER_EXISTS', 'A user with this email already exists');
 
-  router.post('/:id/resend-invite', async (req, res, next) => {
-    try {
-      const user = (await db.query('SELECT id, email, auth_user_id FROM public.app_users WHERE id = $1', [req.params.id])).rows[0];
-      if (!user) throw new ApiError(404, 'NOT_FOUND', 'User not found');
-      if (user.auth_user_id) {
-        const { data } = await authAdmin.getUserById(user.auth_user_id);
-        if (data?.user?.last_sign_in_at || data?.user?.email_confirmed_at) {
-          throw new ApiError(409, 'INVITE_ACCEPTED', 'This user has already accepted the invitation');
+        // 1. Auth account (Supabase hashes the password; it is never stored or logged here)
+        const { data, error } = await authAdmin.createUser({ email: body.email, password: body.password, email_confirm: true });
+        if (error) {
+          if (isAlreadyRegistered(error)) throw new ApiError(409, 'USER_EXISTS', 'This email already has a sign-in account');
+          if (isWeakPasswordError(error)) throw new ApiError(400, 'WEAK_PASSWORD', error.message);
+          req.log?.error({ err: { code: error.code, status: error.status } }, 'auth createUser failed');
+          throw new ApiError(502, 'ACCOUNT_CREATE_FAILED', 'The account could not be created');
         }
-      }
-      const { data, error } = await authAdmin.inviteUserByEmail(user.email, { redirectTo });
-      if (error) {
-        req.log?.error({ err: { message: error.message, status: error.status } }, 'resend invite failed');
-        throw new ApiError(502, 'INVITE_FAILED', 'The invitation email could not be sent');
-      }
-      if (!user.auth_user_id && data?.user?.id) {
-        await db.query('UPDATE public.app_users SET auth_user_id = $2 WHERE id = $1', [user.id, data.user.id]);
-      }
-      res.status(204).end();
-    } catch (e) { next(e); }
-  });
+
+        // 2. App user linked to it; on any failure the Auth account is removed so nothing half-made remains
+        try {
+          const created = serializeOne(await db.query(
+            `INSERT INTO public.app_users (email, full_name, display_name, role, auth_user_id, must_change_password, created_by_id)
+             VALUES ($1, $2, $2, $3, $4, true, $5) RETURNING *`,
+            [body.email, body.full_name, body.role, data.user.id, req.user.id],
+          ));
+          res.status(201).json(created);
+        } catch (err) {
+          const { error: cleanupError } = await authAdmin.deleteUser(data.user.id).catch((e) => ({ error: e }));
+          if (cleanupError) req.log?.error({ orphanAuthUserId: data.user.id }, 'could not remove auth user after failed app_users insert');
+          throw err;
+        }
+      } catch (e) { next(e); }
+    });
 
   return router;
 }

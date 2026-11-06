@@ -38,7 +38,8 @@ export function createEntities(money) {
       filters: { role: 'text', email: 'text' }, sorts: ['created_date', 'email', 'display_name'],
       // cashiers see only themselves
       scope: (user) => (user.role === 'admin' ? null : { column: 'id', value: user.id }),
-      writes: { update: z.strictObject({ display_name: optText(200), role: z.enum(['admin', 'user']).optional() }) },
+      // Creation is POST /api/users; there is no DELETE (accounts are not removed through the generic route).
+      writes: { update: z.strictObject({ full_name: optText(200), display_name: optText(200), role: z.enum(['admin', 'user']).optional() }) },
     },
     Category: {
       table: 'categories', ...REFERENCE,
