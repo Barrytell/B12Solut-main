@@ -1,0 +1,5 @@
+# Supabase CLI project file (CLI 2.121.0, pinned in .github/workflows/db-staging.yml).
+# There is no local Supabase stack in this project (cloud-only); this file only
+# names the project so `supabase link` / `db push --linked` work from server/.
+# Auth, SMTP and provider settings live in the Supabase dashboard (README).
+project_id = "b12-store"

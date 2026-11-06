@@ -202,12 +202,30 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 
 ### Stage 7 — Staging deployment + CI (authorized; staging only)
 
+*Stage 7 status (2026-11-06): **configuration prepared, nothing deployed.***
+- *`.github/workflows/ci.yml`: secret scan, lint plus the import-case check, script tests, build, a no-Base44 bundle check, and server unit tests. It needs no secrets. It hasn't run yet: the branch isn't pushed.*
+- *`.github/workflows/db-staging.yml`: manual, staging only.*
+  - *The guard runs first.*
+  - *Supabase CLI pinned to **2.121.0**, a release older than 2 weeks; 3.0.0 came out on 2026-11-02 and is avoided. Flags checked against that version's `--help`.*
+  - *Dry-run, then apply, then advisors with `--fail-on warn`.*
+- *`server/supabase/config.toml` (minimal), `engines.node >= 22` in both packages.*
+- *`docs/deploy/DEPLOYMENT.md`: step-by-step staging setup.*
+- *`server/scripts/create-first-admin.js` bootstraps the first admin, since sign-ups are off. It's guarded, dry-run by default, refuses if an admin exists, and sends a real email only with your approval.*
+- *Both workflow files parse as YAML. They haven't been run on GitHub.*
+- *The staging integration suite and its CI job come next (T2–T9, T12, T14–T17, T21).*
+
 - [ ] 7.1 `.github/workflows/ci.yml`:
   - lint, `check-public-env`, build;
   - server unit tests;
   - integration tests against staging, using the GitHub `staging` environment secrets;
   - `concurrency: staging-db` so only one run touches staging at a time.
-- [ ] 7.2 Railway `staging` environment: `server/railway.json`, root `server`, health check `/health`. You enter the variables.
+- [ ] 7.2 Railway `staging` environment, set in the service settings (docs/deploy/DEPLOYMENT.md):
+  - root directory `server`;
+  - start command `npm start`;
+  - health check `/health`;
+  - restart on failure.
+  - You enter the variables.
+  - *`railway.json` is not used: Railway deprecated it, and new services can't opt in.*
 - [ ] 7.3 Vercel project: previews for pull requests and a staging alias. The alias host should contain `staging` (e.g. `b12-staging.vercel.app`) so I may run the browser walkthrough on it. You enter the variables.
 - [ ] 7.4 Staging smoke test (T24).
 

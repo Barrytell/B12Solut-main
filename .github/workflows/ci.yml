@@ -1,0 +1,77 @@
+# Runs on every push and pull request. Needs no secrets: nothing here touches
+# Supabase, Railway, Vercel, Resend or Anthropic. Staging database work runs in
+# db-staging.yml (manual) and the staging integration suite (added with it).
+name: CI
+
+on:
+  push:
+    branches: [main, migration/supabase]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secret-scan:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-secrets.mjs --history
+
+  frontend:
+    name: Frontend lint, tests, build (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      # ESLint + case-sensitive import check (Linux catches what Windows hides)
+      - run: npm run lint
+      # secret scanner, public-env guard and browser/server money parity tests
+      - run: npm run test:scripts
+      # placeholder public values: the build must not depend on real configuration
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://aaaaaaaaaaaaaaaaaaaa.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          VITE_API_URL: https://api.example.invalid
+          VITE_AUTH_PROVIDERS: google
+          VITE_CURRENCY: USD
+      - name: Bundle contains no Base44 code
+        run: |
+          if grep -rl "base44" dist/assets; then echo "::error::base44 found in bundle"; exit 1; fi
+
+  server:
+    name: Server unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Every module loads
+        run: |
+          for f in $(find src -name '*.js' ! -name index.js); do
+            node --input-type=module -e "await import('./$f')" || exit 1
+          done

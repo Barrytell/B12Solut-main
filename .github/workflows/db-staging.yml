@@ -1,0 +1,56 @@
+# Applies server/supabase/migrations to the STAGING Supabase project only.
+# Manual run (Actions -> "DB migrations (staging)" -> Run workflow).
+# Production migrations are NOT in CI: they need your explicit approval and are
+# run by hand behind the production guard (docs/deploy/DEPLOYMENT.md, Stage 11).
+name: DB migrations (staging)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run shows pending migrations; apply pushes them"
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-db
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: staging
+    defaults:
+      run:
+        working-directory: server
+    env:
+      APP_ENV: ${{ secrets.APP_ENV }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Refuses unless every setting points at the staging project in targets.json.
+      - run: node scripts/assert-staging.js
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.121.0
+      - run: supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
+      - run: supabase migration list --linked
+      - run: supabase db push --linked --dry-run
+      - if: inputs.mode == 'apply'
+        run: supabase db push --linked --yes
+      - if: inputs.mode == 'apply'
+        run: supabase migration list --linked
+      - name: Security advisors
+        if: inputs.mode == 'apply'
+        run: supabase db advisors --linked --type security --level warn --fail-on warn

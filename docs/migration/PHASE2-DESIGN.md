@@ -535,7 +535,7 @@ They are created with `supabase migration new` and applied with `supabase db pus
 - Root directory `server`, Node 22 (`engines`). supabase-js dropped Node 20.
 - Start: `node src/index.js`, listening on `process.env.PORT` and `0.0.0.0`.
 - Health check: `/health`.
-- `railway.json` holds the start command, health check and restart policy.
+- Start command, health check and restart policy are set in the Railway service settings (docs/deploy/DEPLOYMENT.md). Railway's `railway.json` (Config as Code) was checked on 2026-11-06 and is deprecated: new services can't opt in, and files stop being read on 2026-12-01. So no `railway.json` is used.
 - Environment variables: the full list is in `server/.env.example` and README → "Environment variables". The server refuses to start if a required one is missing or still a `YOUR_…` placeholder.
 - Two Railway environments, `staging` and `production`, each with its own variables. The backend URL is Railway's generated `*.up.railway.app` domain, so no DNS is needed.
 
