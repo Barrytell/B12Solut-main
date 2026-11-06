@@ -1,8 +1,15 @@
 import pino from 'pino';
+import Anthropic from '@anthropic-ai/sdk';
 import { loadConfig, ConfigError } from './config.js';
 import { createPool } from './db.js';
 import { createSupabaseAdmin, makeRequireAuth, makeVerifyToken } from './auth.js';
 import { createApp } from './app.js';
+import { createMoney } from './lib/money.js';
+import { createFormat } from './lib/format.js';
+import { createEntities } from './entities.js';
+import { createStorage } from './storage.js';
+import { adminEmails, createMailer, lowStockEmail } from './email.js';
+import { createAdvisor } from './routes/advisor.js';
 
 let config;
 try {
@@ -16,8 +23,31 @@ try {
 const logger = pino({ level: config.logLevel, base: { env: config.appEnv } });
 const db = createPool(config.database);
 const supabase = createSupabaseAdmin(config.supabase);
+const money = createMoney(config.currency);
+const sendMail = createMailer(config.email);
+
+const services = {
+  money,
+  entities: createEntities(money),
+  storage: createStorage(supabase),
+  sendMail,
+  fmt: createFormat({ currency: config.currency, timeZone: config.timeZone }),
+  authAdmin: supabase.auth.admin,
+  advisor: createAdvisor({
+    anthropic: new Anthropic({ apiKey: config.anthropic.apiKey }),
+    model: config.anthropic.model,
+    db,
+    currency: config.currency,
+    log: logger,
+  }),
+  notifyLowStock: async (alerts) => {
+    const to = await adminEmails(db);
+    if (to.length) await sendMail({ to, ...lowStockEmail(alerts, config.appUrl) });
+  },
+};
+
 const requireAuth = makeRequireAuth({ verifyToken: makeVerifyToken(supabase), db });
-const app = createApp({ config, logger, db, requireAuth });
+const app = createApp({ config, logger, db, requireAuth, services });
 
 const server = app.listen(config.port, '0.0.0.0', () => logger.info({ port: config.port }, 'b12 api listening'));
 

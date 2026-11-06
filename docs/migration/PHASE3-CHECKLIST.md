@@ -135,6 +135,23 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 
 ### Stage 5 — API (integration tests against staging)
 
+*Stage 5 status (2026-11-06): **routes are written and unit-tested; nothing is ticked yet.** An item is ticked only after its staging integration test passes.*
+- *Unit tests: 47 server tests (permission matrix, validation, injection guards, pricing, returns, report figures, PDF rendering in Node, email escaping, upload sniffing) plus 5 script tests.*
+- *Not yet run against a real database: locking, rollback, concurrency, idempotency races, Supabase Auth (invite, `getClaims`), Storage, Resend, Anthropic.*
+
+*Design details settled while writing Stage 5:*
+- *Tax per line = unit × qty × rate%, rounded once from the exact product. Profit = grand total − cost, as today.*
+- *Card and e-pay are charged exactly the total; cash must cover it, or `409 PAYMENT_SHORT`.*
+- *A product's category must exist (`400 UNKNOWN_CATEGORY`): the new schema links categories by name. The product form's `'other'` default is fixed in Stage 6.*
+- *Deleting a category in use is refused on the server too (`409 CATEGORY_IN_USE`).*
+- *Product create with stock → audit "Initial stock (product created)". Product form stock edit → audit "Stock edited in product form" (D3).*
+- *Images: PNG, JPEG, WebP and GIF, checked by content; SVG refused.*
+- *The upload request body is the raw file.*
+- *The report body takes the store header as `{store: {storeName, storeAddress, storePhone, storeEmail, storeWebsite}}`. The response is `{report_path, email_sent}`: the PDF is kept even if email fails.*
+- *`STORE_TIMEZONE` added, so report times aren't printed in the server's UTC.*
+- *Restock Advisor: refusal fallbacks are **not** used. They're opt-in and aimed at other models; a refusal returns a polite message instead.*
+- *Resending an invite to someone who already has an unconfirmed Supabase account may be refused by Supabase. This is verified in T12.*
+
 - [ ] 5.1 Generic entity routes + permission matrix (A5).
 - [ ] 5.2 `PATCH /Product`: stock change and audit row in one transaction (D3).
 - [ ] 5.3 `POST /api/sales`: locks, 409 on insufficient stock (D4), database prices, integer cents, idempotency, relative shift totals, low-stock alerts.

@@ -56,6 +56,7 @@ Set the **Preview** scope to the staging values and the **Production** scope to 
 | `PORT` | auto | `3001` | Set by Railway; the server binds `0.0.0.0` |
 | `LOG_LEVEL` | no | `info` | |
 | `CURRENCY` | yes | `USD` | Must equal `VITE_CURRENCY` |
+| `STORE_TIMEZONE` | no | `UTC` | IANA time zone (e.g. `Africa/Lagos`) for times on shift reports and emails. Railway servers run in UTC |
 | `APP_URL` | yes | `https://YOUR_FRONTEND_URL` | Used in email links and invite and reset redirects |
 | `FRONTEND_ORIGINS` | yes | `https://YOUR_FRONTEND_URL` | CORS allow-list, comma-separated. On staging add `https://b12-*-YOUR_VERCEL_TEAM.vercel.app` |
 | `SUPABASE_URL` | yes | `https://YOUR_SUPABASE_PROJECT_ID.supabase.co` | |

@@ -64,6 +64,9 @@ export function loadConfig(env = process.env) {
   const origins = parseOrigins(env.FRONTEND_ORIGINS, { allowWildcard: env.APP_ENV === 'staging' });
   problems.push(...origins.problems);
 
+  const timeZone = env.STORE_TIMEZONE || 'UTC';
+  try { new Intl.DateTimeFormat('en-US', { timeZone }); } catch { problems.push(`STORE_TIMEZONE "${timeZone}" is not an IANA time zone (e.g. Africa/Lagos)`); }
+
   const port = Number(env.PORT || 3001);
   if (!Number.isInteger(port) || port < 1 || port > 65535) problems.push('PORT must be an integer 1-65535');
   const poolMax = Number(env.DATABASE_POOL_MAX || 10);
@@ -77,6 +80,7 @@ export function loadConfig(env = process.env) {
     port,
     logLevel: env.LOG_LEVEL || 'info',
     currency: env.CURRENCY,
+    timeZone,
     appUrl: env.APP_URL,
     isAllowedOrigin: origins.isAllowed,
     supabase: { url: env.SUPABASE_URL, projectId: env.SUPABASE_PROJECT_ID, secretKey: env.SUPABASE_SECRET_KEY },

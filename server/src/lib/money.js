@@ -77,6 +77,8 @@ export function createMoney(currency) {
     lineAmount: (unitCents, qtyMilli) => round(unitCents * qtyMilli, 1000n),
     /** amount x rate% where rate is numeric(5,2), e.g. "7.50" -> 750 basis points. */
     percentOf: (cents, rate) => round(cents * toCents(rate), 10000n),
+    /** tax = unit x qty x rate% rounded once from the exact product (unit cents, qty thousandths, rate basis points). */
+    lineTax: (unitCents, qtyMilli, rateBp) => round(unitCents * qtyMilli * rateBp, 1000n * 10000n),
     sum: (list) => list.reduce((a, b) => a + b, 0n),
   };
 }
