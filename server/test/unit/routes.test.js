@@ -12,6 +12,7 @@ import { createMoney } from '../../src/lib/money.js';
 import { createEntities } from '../../src/entities.js';
 import { buildListQuery } from '../../src/routes/entities.js';
 import { sniffImage } from '../../src/routes/uploads.js';
+import { createDisabledAdvisor } from '../../src/routes/advisor.js';
 
 const money = createMoney('USD');
 const entities = createEntities(money);
@@ -20,7 +21,7 @@ const USERS = {
   cashier: { id: 'u-cash', email: 'cash@x.test', full_name: 'Cal', display_name: 'Cal', role: 'user' },
 };
 
-function build() {
+function build({ advisor = { status: async () => ({ enabled: true, reason: null }), chat: async () => ({}) } } = {}) {
   const queries = [];
   const db = {
     queries,
@@ -49,7 +50,7 @@ function build() {
   const app = createApp({
     config, logger: pino({ level: 'silent' }), db,
     requireAuth: makeRequireAuth({ verifyToken: async (t) => (USERS[t] ? { sub: t } : null), db }),
-    services: { money, entities, storage, sendMail: async () => {}, fmt: null, authAdmin: {}, advisor: { chat: async () => ({}) }, notifyLowStock: async () => {} },
+    services: { money, entities, storage, sendMail: async () => {}, fmt: null, authAdmin: {}, advisor, notifyLowStock: async () => {} },
   });
   return { app, db, storage };
 }
@@ -138,6 +139,21 @@ test('list query: whitelist only, values parameterised, cashier scope forced', (
   const products = buildListQuery(entities.Product, {}, user);
   assert.match(products.sql, /is_active = \$1/);
   assert.equal(products.params[0], true);
+});
+
+test('without ANTHROPIC_API_KEY only the advisor is off; admins see "not configured"', async () => {
+  const { app } = build({ advisor: createDisabledAdvisor() });
+  const status = await request(app).get('/api/restock-advisor/status').set(as('admin'));
+  assert.equal(status.status, 200);
+  assert.deepEqual(status.body, { enabled: false, reason: 'not_configured' });
+  const chat = await request(app).post('/api/restock-advisor/chat').set(as('admin')).send({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(chat.status, 503);
+  assert.equal(chat.body.error.code, 'AI_NOT_CONFIGURED');
+  assert.equal((await request(app).get('/api/restock-advisor/status').set(as('cashier'))).status, 403);
+  // the rest of the API is unaffected
+  assert.equal((await request(app).get('/api/auth/me').set(as('admin'))).status, 200);
+  assert.equal((await request(app).get('/api/entities/Product').set(as('cashier'))).status, 200);
+  assert.equal((await request(app).get('/health')).status, 200);
 });
 
 test('image upload: content sniffing, not names or headers (T17)', async () => {

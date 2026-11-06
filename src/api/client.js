@@ -79,7 +79,10 @@ export const api = {
   uploads: {
     productImage: (file) => request('POST', '/api/uploads/product-image', { raw: file, contentType: file.type }),
   },
-  advisor: { chat: (messages) => request('POST', '/api/restock-advisor/chat', { body: { messages } }) },
+  advisor: {
+    status: () => request('GET', '/api/restock-advisor/status'),
+    chat: (messages) => request('POST', '/api/restock-advisor/chat', { body: { messages } }),
+  },
 };
 
 /** Opens a shift's official PDF through a fresh 10-minute signed link. */

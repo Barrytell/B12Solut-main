@@ -42,7 +42,7 @@ test('the committed server/.env.example is refused (placeholders)', () => {
 });
 
 test('each refusal', () => {
-  refused(valid({ ANTHROPIC_API_KEY: '' }), /ANTHROPIC_API_KEY is missing/);
+  refused(valid({ RESEND_API_KEY: '' }), /RESEND_API_KEY is missing/);
   refused(valid({ APP_ENV: 'dev' }), /APP_ENV/);
   refused(valid({ CURRENCY: 'KWD' }), /only 0 or 2/);
   refused(valid({ APP_URL: 'http://b12.example.com' }), /APP_URL/);
@@ -53,6 +53,16 @@ test('each refusal', () => {
   refused(valid({ DATABASE_CA_CERT: 'not a cert' }), /DATABASE_CA_CERT/);
   refused(valid({ PORT: 'abc' }), /PORT/);
   refused(valid({ APP_ENV: 'production' }), /wildcard .* staging only/);
+});
+
+test('Anthropic is optional: no key (or a placeholder) disables only the advisor', () => {
+  const noKey = valid({ ANTHROPIC_API_KEY: undefined, ANTHROPIC_MODEL: undefined });
+  delete noKey.ANTHROPIC_API_KEY; delete noKey.ANTHROPIC_MODEL;
+  assert.equal(loadConfig(noKey).anthropic, null);
+  assert.equal(loadConfig(valid({ ANTHROPIC_API_KEY: '' })).anthropic, null);
+  assert.equal(loadConfig(valid({ ANTHROPIC_API_KEY: 'YOUR_ANTHROPIC_API_KEY' })).anthropic, null);
+  assert.deepEqual(loadConfig(valid({ ANTHROPIC_MODEL: '' })).anthropic, { apiKey: 'test-anthropic', model: 'claude-opus-5-5' });
+  assert.equal(loadConfig(valid({ ANTHROPIC_MODEL: 'claude-sonnet-5-5' })).anthropic.model, 'claude-sonnet-5-5');
 });
 
 test('error messages never contain secret values', () => {

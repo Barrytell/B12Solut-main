@@ -13,14 +13,56 @@ const SUGGESTED_PROMPTS = [
   'Group low-stock items by category',
 ];
 
+const UNAVAILABLE = {
+  not_configured: {
+    title: 'AI Restock Advisor is not configured',
+    body: 'The AI features have not been set up for this store. Everything else in B12 Store Solution works normally without them.',
+    hint: 'To enable it, add ANTHROPIC_API_KEY to the backend service variables on Railway. The advisor turns on automatically after the service redeploys.',
+  },
+  model_unavailable: {
+    title: 'AI Restock Advisor is unavailable',
+    body: 'An Anthropic API key is configured, but the selected AI model is not available to it.',
+    hint: 'Check ANTHROPIC_API_KEY and ANTHROPIC_MODEL in the Railway variables. The rest of the app is not affected.',
+  },
+  unreachable: {
+    title: 'AI Restock Advisor status unknown',
+    body: 'The advisor status could not be loaded. Check your connection and refresh the page.',
+    hint: null,
+  },
+};
+
+function AdvisorUnavailable({ reason }) {
+  const msg = UNAVAILABLE[reason] ?? UNAVAILABLE.not_configured;
+  return (
+    <div className="max-w-2xl mx-auto mt-8">
+      <div className="bg-card border border-border rounded-xl p-6 text-center space-y-3">
+        <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center mx-auto">
+          <PackageSearch className="w-7 h-7 text-muted-foreground" />
+        </div>
+        <h1 className="text-lg font-semibold">{msg.title}</h1>
+        <p className="text-sm text-muted-foreground">{msg.body}</p>
+        {msg.hint && <p className="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">{msg.hint}</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function RestockAdvisor() {
   // The conversation lives in the page, as before: a new session on load or "New Session".
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const initializing = false;
+  // The advisor is optional: it is off until ANTHROPIC_API_KEY is set on the backend.
+  const [aiStatus, setAiStatus] = useState(null); // null while checking
+  const initializing = aiStatus === null;
   const session = useRef(0);
   const bottomRef = useRef(null);
+
+  useEffect(() => {
+    api.advisor.status()
+      .then(setAiStatus)
+      .catch(() => setAiStatus({ enabled: false, reason: 'unreachable' }));
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -59,6 +101,10 @@ export default function RestockAdvisor() {
   };
 
   const isThinking = loading;
+
+  if (aiStatus && !aiStatus.enabled) {
+    return <AdvisorUnavailable reason={aiStatus.reason} />;
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] max-w-4xl mx-auto">

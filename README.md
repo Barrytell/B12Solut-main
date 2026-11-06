@@ -69,10 +69,29 @@ Set the **Preview** scope to the staging values and the **Production** scope to 
 | `STORAGE_SHIFT_REPORTS_BUCKET` | no | `shift-reports` | Private bucket |
 | `RESEND_API_KEY` | yes | `YOUR_RESEND_API_KEY` | Resend → API Keys (sending access) |
 | `EMAIL_FROM` | yes | `B12 Store <YOUR_SENDER_EMAIL>` | Must be on a domain verified in Resend |
-| `ANTHROPIC_API_KEY` | yes | `YOUR_ANTHROPIC_API_KEY` | Anthropic Console → API Keys |
-| `ANTHROPIC_MODEL` | yes | `claude-opus-5-5` | Checked at startup with the Models API |
+| `ANTHROPIC_API_KEY` | **optional** | *(empty)* | Anthropic Console → API Keys. Empty = AI Restock Advisor off, everything else unchanged. See "AI Restock Advisor (optional)" below |
+| `ANTHROPIC_MODEL` | optional | `claude-opus-5-5` | Default if unset. Checked at startup with the Models API |
 
 No JWT secret or session secret is needed. Tokens are verified with Supabase's public signing keys (JWKS), and the API is stateless bearer-token auth.
+
+### AI Restock Advisor (optional)
+
+B12 Store Solution runs fully without AI. POS, inventory, sales, reports, suppliers, wholesale and administration don't depend on Anthropic.
+
+| Situation | What happens |
+|---|---|
+| `ANTHROPIC_API_KEY` not set (or still a `YOUR_…` placeholder) | The server starts normally. Only **Admin → Restock Advisor** shows *"AI Restock Advisor is not configured"*, with a hint for the administrator. Its chat endpoint returns `503 AI_NOT_CONFIGURED`. |
+| Key set, but the model is not available to it | Same, with the message *"AI Restock Advisor is unavailable"*. Check the key and `ANTHROPIC_MODEL`. |
+| Valid key set | The advisor is enabled automatically. |
+
+**To enable it:**
+1. Anthropic Console → **API Keys** → create a key.
+2. Railway → backend service → **Variables**: add `ANTHROPIC_API_KEY`. Optionally set `ANTHROPIC_MODEL`; the default is `claude-opus-5-5`.
+3. Railway redeploys the service when a variable changes. On startup the server checks the model with the Models API and turns the advisor on.
+
+**To disable it:** delete the variable. The service redeploys with the advisor off.
+
+**Where the key lives:** only on Railway, and in the GitHub `staging` environment if you run the opt-in AI tests. Never in Vercel, never with a `VITE_` prefix, never in git. The browser only ever calls `/api/restock-advisor/*` on the backend.
 
 ### CLI, CI and test runs only (not on Railway)
 

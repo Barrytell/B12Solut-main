@@ -90,7 +90,7 @@ procedure on separate projects and is done **only with your explicit approval** 
    - `SUPABASE_URL`, `SUPABASE_PROJECT_ID`, `SUPABASE_SECRET_KEY`;
    - `DATABASE_URL`, `DATABASE_CA_CERT`;
    - `RESEND_API_KEY`, `EMAIL_FROM`;
-   - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`.
+   - *Optional:* `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`. Without them only the AI Restock Advisor is off (README → "AI Restock Advisor (optional)").
    - `PORT` is set by Railway.
 4. If any variable is missing or still a `YOUR_…` placeholder, the deploy log names it and the service doesn't start. That's intended.
 5. Railway's `railway.json` (Config as Code) is deprecated and not used here; these dashboard settings replace it.

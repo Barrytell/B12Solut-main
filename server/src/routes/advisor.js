@@ -25,6 +25,17 @@ const chatSchema = z.strictObject({
   })).min(1).max(40).refine((m) => m[m.length - 1].role === 'user', 'The last message must be from the user'),
 });
 
+/** Used when ANTHROPIC_API_KEY is not set: only the advisor is off, nothing else changes. */
+export function createDisabledAdvisor() {
+  return {
+    ready: Promise.resolve(false),
+    status: async () => ({ enabled: false, reason: 'not_configured' }),
+    chat: async () => {
+      throw new ApiError(503, 'AI_NOT_CONFIGURED', 'The AI Restock Advisor has not been configured');
+    },
+  };
+}
+
 export function createAdvisor({ anthropic, model, db, currency, log }) {
   // Startup check (A11): the configured model must be available to this API key.
   const ready = anthropic.models.retrieve(model)
@@ -91,7 +102,8 @@ export function createAdvisor({ anthropic, model, db, currency, log }) {
     return { role: 'assistant', content: text || 'No answer was produced. Please try again.', tool_calls: calls };
   }
 
-  return { chat, ready };
+  const status = async () => ((await ready) ? { enabled: true, reason: null } : { enabled: false, reason: 'model_unavailable' });
+  return { chat, ready, status };
 }
 
 export function advisorRouter({ advisor }) {
@@ -100,6 +112,11 @@ export function advisorRouter({ advisor }) {
     windowMs: 60_000, limit: 20, keyGenerator: (req) => `advisor:${req.user.id}`,
     handler: (_req, res) => res.status(429).json({ error: { code: 'RATE_LIMITED', message: 'Too many advisor requests, wait a minute' } }),
   }));
+  // Lets the admin page show "not configured" instead of a failing chat box.
+  router.get('/status', async (_req, res, next) => {
+    try { res.json(await advisor.status()); } catch (e) { next(e); }
+  });
+
   router.post('/chat', async (req, res, next) => {
     try {
       const { messages } = chatSchema.parse(req.body);

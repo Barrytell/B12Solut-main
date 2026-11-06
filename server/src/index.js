@@ -9,7 +9,7 @@ import { createFormat } from './lib/format.js';
 import { createEntities } from './entities.js';
 import { createStorage } from './storage.js';
 import { adminEmails, createMailer, lowStockEmail } from './email.js';
-import { createAdvisor } from './routes/advisor.js';
+import { createAdvisor, createDisabledAdvisor } from './routes/advisor.js';
 
 let config;
 try {
@@ -33,13 +33,16 @@ const services = {
   sendMail,
   fmt: createFormat({ currency: config.currency, timeZone: config.timeZone }),
   authAdmin: supabase.auth.admin,
-  advisor: createAdvisor({
-    anthropic: new Anthropic({ apiKey: config.anthropic.apiKey }),
-    model: config.anthropic.model,
-    db,
-    currency: config.currency,
-    log: logger,
-  }),
+  // Optional integration: without ANTHROPIC_API_KEY only the Restock Advisor is disabled.
+  advisor: config.anthropic
+    ? createAdvisor({
+      anthropic: new Anthropic({ apiKey: config.anthropic.apiKey }),
+      model: config.anthropic.model,
+      db,
+      currency: config.currency,
+      log: logger,
+    })
+    : createDisabledAdvisor(),
   notifyLowStock: async (alerts) => {
     const to = await adminEmails(db);
     if (to.length) await sendMail({ to, ...lowStockEmail(alerts, config.appUrl) });
@@ -49,7 +52,10 @@ const services = {
 const requireAuth = makeRequireAuth({ verifyToken: makeVerifyToken(supabase), db });
 const app = createApp({ config, logger, db, requireAuth, services });
 
-const server = app.listen(config.port, '0.0.0.0', () => logger.info({ port: config.port }, 'b12 api listening'));
+const server = app.listen(config.port, '0.0.0.0', () => {
+  logger.info({ port: config.port }, 'b12 api listening');
+  if (!config.anthropic) logger.info('AI Restock Advisor disabled: ANTHROPIC_API_KEY is not set (optional)');
+});
 
 const shutdown = (signal) => {
   logger.info({ signal }, 'shutting down');

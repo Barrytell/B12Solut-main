@@ -6,8 +6,11 @@ import { refFromDatabaseUrl, refFromSupabaseUrl } from './lib/supabaseRef.js';
 const REQUIRED = [
   'APP_ENV', 'CURRENCY', 'APP_URL', 'FRONTEND_ORIGINS',
   'SUPABASE_URL', 'SUPABASE_PROJECT_ID', 'SUPABASE_SECRET_KEY', 'DATABASE_URL', 'DATABASE_CA_CERT',
-  'RESEND_API_KEY', 'EMAIL_FROM', 'ANTHROPIC_API_KEY', 'ANTHROPIC_MODEL',
+  'RESEND_API_KEY', 'EMAIL_FROM',
 ];
+// ANTHROPIC_API_KEY / ANTHROPIC_MODEL are optional: without a key only the AI
+// Restock Advisor is disabled; everything else runs normally.
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5-5';
 
 export class ConfigError extends Error {}
 
@@ -74,6 +77,7 @@ export function loadConfig(env = process.env) {
 
   if (problems.length) throw new ConfigError(`Invalid configuration:\n  - ${problems.join('\n  - ')}`);
 
+  const aiKey = (env.ANTHROPIC_API_KEY || '').trim();
   return Object.freeze({
     appEnv: env.APP_ENV,
     isProduction: env.APP_ENV === 'production',
@@ -90,6 +94,9 @@ export function loadConfig(env = process.env) {
       shiftReports: env.STORAGE_SHIFT_REPORTS_BUCKET || 'shift-reports',
     },
     email: { resendApiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM },
-    anthropic: { apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL },
+    // null = AI Restock Advisor not configured (a missing key or an unfilled YOUR_ placeholder)
+    anthropic: aiKey && !/YOUR_/.test(aiKey)
+      ? { apiKey: aiKey, model: (env.ANTHROPIC_MODEL || '').trim() && !/YOUR_/.test(env.ANTHROPIC_MODEL) ? env.ANTHROPIC_MODEL.trim() : DEFAULT_ANTHROPIC_MODEL }
+      : null,
   });
 }
