@@ -1,6 +1,11 @@
 # B12 Store Solution — Implementation Checklist (Phase 3–7)
 
 Status: **round 4: cloud-only.** Cloud implementation and staging preparation are authorized; production stays behind the gates in section G.
+**Round 5 (2026-11-06):**
+- **Email-and-password authentication only.** All social/OAuth login is removed from the plan (A19).
+- Admins create accounts with an initial password, which the user must change at first login (A20).
+- The application code for this is **Stage 12, waiting for your approval**: the current branch still contains the earlier invite and Google code.
+- The Anthropic API is optional (A21, implemented).
 Date: 2026-11-05 · Builds on [PHASE2-DESIGN.md](PHASE2-DESIGN.md).
 - Decisions D1–D6 are approved and B.5 is decided.
 - The domain is no longer blocking; you add it in Vercel yourself.
@@ -23,7 +28,7 @@ All of these are in PHASE2-DESIGN.md.
 | A7 | **Integer minor units for all money**: NUMERIC is never turned into floats | 3 |
 | A8 | **Server-generated official shift PDF** from database values; `declared_cash` stored (S14) | 3 |
 | A9 | **Migration target guard**: dry-run by default, ref verified against the actual connection, separate production authorization | 3 |
-| A10 | **Uninvited Google accounts**: sign-ups off, plus matching only on `auth_user_id`; Before User Created hook as fallback | 3 |
+| A10 | **No access without an `app_users` row**: sign-ups off, and the API matches sessions only on `auth_user_id`, which is set when the admin creates the account (round 5: the OAuth part is gone) | 3, 5 |
 | A11 | **Model verified** with the Models API at startup; `ANTHROPIC_MODEL` configurable; default `claude-opus-5-5` | 3 |
 | A12 | **Storage**: product images publicly viewable with no client writes; shift reports private, backend only | 3 |
 | A13 | **Git hygiene**: extended `.gitignore` + secret scan as a pre-commit hook and before the first push | 3 |
@@ -31,6 +36,9 @@ All of these are in PHASE2-DESIGN.md.
 | A15 | **`server/` holds everything server-side**: the Express API, tests, migration scripts and Supabase migrations (`server/supabase`). The original has no server code, so nothing existing moves | 4 |
 | A16 | **Complete environment templates**: `/.env.example` (public `VITE_` only) and `server/.env.example`, plus the README reference with staging and production instructions. The server refuses to boot on a missing or `YOUR_…` value. The build refuses any secret-looking `VITE_` variable | 4 |
 | A17 | **One configurable currency** (`CURRENCY` = `VITE_CURRENCY`). Minor units follow ISO 4217; 0- and 2-digit currencies are supported, 3-digit ones are refused at boot | 4 |
+| A19 | **Email and password only (firm).** No Google, Apple, Facebook, Microsoft or other social/OAuth login, now or later. No OAuth configuration, callback routes, components, buttons or variables. Login screen: email, password, Sign in, Forgot password. No public sign-up | 5 |
+| A20 | **Admin-created accounts.** `POST /api/users`: full name, email, initial password and role (Admin/Cashier); created with the Supabase Auth Admin API; `app_users` linked by `auth_user_id`; any failure deletes the half-created Auth user. The initial password is temporary: `must_change_password` (S15) blocks every other route until `POST /api/auth/change-password`. Users can change their password any time. The last admin can't be demoted | 5 |
+| A21 | **Anthropic optional.** Without `ANTHROPIC_API_KEY` only the Restock Advisor is off; admins see "not configured"; startup and everything else are unaffected. **Implemented** (commit `e4f3d59`) | 5 |
 | A18 | **Domain not blocking**: generated Vercel and Railway URLs until you add the domain. I make no DNS changes. README "After adding your domain" lists every setting to update | 4 |
 
 ---
@@ -130,14 +138,20 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 
 - [ ] 4.1 `supabase link` + `supabase db push --linked` on **staging**, behind the guard. *Done when:* `supabase migration list --linked` shows 0001–0003.
 - [ ] 4.2 Security advisors on staging (`supabase db advisors --linked`, or the dashboard Security Advisor if the CLI version lacks it). *Done when:* there are no security findings.
-- [ ] 4.3 Auth settings on staging, done by you from README §Supabase: sign-ups off, Google, Site/Redirect URLs, Resend SMTP. *Done when:* T10 passes.
+- [ ] 4.3 Auth settings on staging, done by you from README §Supabase:
+  - email provider only, sign-ups off, every other provider off;
+  - password policy, and secure password change on;
+  - Auth rate limits;
+  - Site/Redirect URLs (for reset links);
+  - Resend SMTP.
+  - *Done when:* T10 and T32 pass.
 - [ ] 4.4 Update `docs/schema/schema.sql` and the README tables section to the final schema.
 
 ### Stage 5 — API (integration tests against staging)
 
 *Stage 5 status (2026-11-06): **routes are written and unit-tested; nothing is ticked yet.** An item is ticked only after its staging integration test passes.*
 - *Unit tests: 47 server tests (permission matrix, validation, injection guards, pricing, returns, report figures, PDF rendering in Node, email escaping, upload sniffing) plus 5 script tests.*
-- *Not yet run against a real database: locking, rollback, concurrency, idempotency races, Supabase Auth (invite, `getClaims`), Storage, Resend, Anthropic.*
+- *Not yet run against a real database: locking, rollback, concurrency, idempotency races, Supabase Auth (admin account creation, `getClaims`), Storage, Resend, Anthropic (optional).*
 
 *Design details settled while writing Stage 5:*
 - *Tax per line = unit × qty × rate%, rounded once from the exact product. Profit = grand total − cost, as today.*
@@ -150,7 +164,7 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - *The report body takes the store header as `{store: {storeName, storeAddress, storePhone, storeEmail, storeWebsite}}`. The response is `{report_path, email_sent}`: the PDF is kept even if email fails.*
 - *`STORE_TIMEZONE` added, so report times aren't printed in the server's UTC.*
 - *Restock Advisor: refusal fallbacks are **not** used. They're opt-in and aimed at other models; a refusal returns a polite message instead.*
-- *Resending an invite to someone who already has an unconfirmed Supabase account may be refused by Supabase. This is verified in T12.*
+- *(Round 5: the invite and resend-invite routes are superseded by admin-created accounts; see Stage 12.)*
 
 - [ ] 5.1 Generic entity routes + permission matrix (A5).
 - [ ] 5.2 `PATCH /Product`: stock change and audit row in one transaction (D3).
@@ -158,7 +172,7 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - [ ] 5.4 `POST /api/returns`: admin only (D2), atomic, cents, audit rows.
 - [ ] 5.5 `POST /api/inventory/update` and `/bulk-stock`: atomic, reason required, audit rows.
 - [ ] 5.6 Shifts: `start`; `close` (stores `declared_cash`); `report` (server PDF via jsPDF in Node, stored, emailed); `report-url` (10 min).
-- [ ] 5.7 Users: `auth/me`, `users/invite`, `resend-invite`. The invite sets `auth_user_id`; admins can't demote themselves.
+- [ ] 5.7 Users: `auth/me`, **`POST /api/users`** and **`POST /api/auth/change-password`**, the `must_change_password` gate, and last-admin protection (A20). *Round 5: the current code still has `users/invite` and `resend-invite`; Stage 12 replaces them.*
 - [ ] 5.8 `uploads/product-image`: admin only, magic bytes, ≤ 5 MB.
 - [ ] 5.9 Resend email module; escaped templates; figures from the database.
 - [ ] 5.10 Restock Advisor: model check at boot, read-only tools, 503 if the model is unavailable, limitation documented.
@@ -171,10 +185,9 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - *A parity test shows the browser cart total equals the server's charge on 2,000 random carts.*
 - *Local smoke test without a backend:*
   - *`/admin` redirects to `/login`;*
-  - *only the Google button shows (D5);*
-  - *an invalid invite link shows the "invalid invitation" screen;*
-  - *`/register` explains the invite flow.*
-- ***Not yet verified with a backend:** every data screen, sign-in, invites, sales, returns, inventory and reports. That happens on staging (T20).*
+  - *the login page showed only the Google button (D5 at the time), and an invalid invite link showed the "invalid invitation" screen. **Both are superseded by round 5 and are reworked in Stage 12;***
+  - *`/register` explains that accounts are created by the administrator.*
+- ***Not yet verified with a backend:** every data screen, sign-in, account creation, sales, returns, inventory and reports. That happens on staging (T20).*
 
 *Changes made beyond a straight swap:*
 - *Close shift: the server closes the shift first. If that fails the shift stays open and the error shows. Then the server builds and emails the report, and "Download PDF" fetches a fresh 10-minute link.*
@@ -182,7 +195,7 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
   - *My Shift offers "View last shift report".*
 - *The browser "Preview PDF before sending" button is kept. It's a preview only, never stored or emailed.*
 - *`stockAlerts.js` is removed: low-stock emails are sent by the server after each sale. The client-side upload and email code in `shiftReport.js` is removed too.*
-- *The user form invites by email (name, email, role). The starting-password and one-time-code steps are gone (D1). Users now have "Resend invite".*
+- *The user form was changed to invite by email, with "Resend invite". **Superseded by round 5:** Stage 12 changes it to full name, email, initial password and role.*
 - *Product form: category defaults to "No category" instead of `'other'`.*
 - *Product images: PNG, JPEG, WebP and GIF, at most 5 MB, checked in the browser and again on the server.*
 - *Inventory and bulk-stock saves now show an error toast on failure; before, a failed save gave no message.*
@@ -193,7 +206,7 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - ***Open:** the `$` symbol is still hard-coded in labels (K9). It's correct for USD, the default, and gets switched to `formatMoney` if you set another currency.*
 
 - [ ] 6.1 `src/lib/supabase.js`, `src/api/client.js` (same `entities.X.*` shape).
-- [ ] 6.2 `AuthContext` on supabase-js; auth pages; Google only (D5); the invite form (D1).
+- [ ] 6.2 `AuthContext` on supabase-js; auth pages with **email and password only** (D5); the admin create-user form (D1); `/change-password` (A20). *Finished in Stage 12.*
 - [ ] 6.3 Mechanical `base44.` → `api.` swap (about 22 files).
 - [ ] 6.4 Logic call sites: sales, returns, inventory, shift close/report/download via `report-url`, alerts, advisor.
 - [ ] 6.5 `src/lib/money.js` in the ~37 money files; `formatMoney` uses `VITE_CURRENCY` (A7, A17).
@@ -216,7 +229,8 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
   - *They run via `npm run test:integration` (reads a git-ignored `server/.env.staging`) or Actions → "Staging integration tests" (manual only, serialized with migrations).*
   - *Coverage: T2, T3, T5–T10, T11(b), T12, T14–T18, T21, T24, plus the D3 audit, category and wholesale checks.*
   - *Every file refuses unless all settings point at the staging project. Verified: without staging settings all 34 runnable tests refuse.*
-  - *Email is captured in memory, so nothing is sent. Invites use `generateLink`. The AI tests (T18) are opt-in, and so is the deployed-API smoke test (T24).*
+  - *Email is captured in memory, so nothing is sent. The AI tests (T18) are opt-in, and so is the deployed-API smoke test (T24).*
+  - ***Round 5:** `02-auth.test.js` still tests the invite flow (T12 old). Stage 12 rewrites it for T12, T13 and T27–T36 below.*
   - *The rollback tests (T7) install `supabase/test-fixtures/force-rollback.sql` for the run and always remove it.*
 - *Security review fix: `db-staging.yml` pins `supabase/setup-cli` to a commit SHA, passes secrets only to the steps that need them, and checks `SUPABASE_PROJECT_ID` too before linking.*
 
@@ -250,13 +264,13 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 
 - [ ] 8.1 `import-base44.js`: preflight (orphans, >2-dp money, totals ≠ lines), single-transaction import, exact reconciliation.
 - [ ] 8.2 `migrate-images.js`, `migrate-reports.js`.
-- [ ] 8.3 `invite-users.js`: dry-run only, until you approve real invites.
+- [ ] 8.3 Accounts for imported users. **Round 5:** `invite-users.js` is replaced in Stage 12 by `create-accounts.js`. It creates Auth accounts with a random password that's never shown, plus `must_change_password`, then sends a password-reset email. That's real email, so it runs with approval only. Alternatively, the admin creates each account in User Management.
 
 ### Stage 9 — Cloud test campaign (section D) and handover docs
 
 - [ ] 9.1 Run T1–T26 as defined in section D; record each result with its output in `docs/migration/TEST-REPORT.md`.
 - [ ] 9.2 Handover docs, in `docs/deploy/`:
-  - Supabase setup, Railway, Vercel, Google OAuth, Resend, Anthropic;
+  - Supabase setup (email/password auth), Railway, Vercel, Resend, Anthropic (optional);
   - database migrations, data import, storage migration;
   - domain configuration;
   - production deployment checklist, backup and recovery;
@@ -274,8 +288,35 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 - [ ] 11.1 Production Supabase: `db push` behind the production authorization (A9); advisors; auth settings.
 - [ ] 11.2 Production Railway and Vercel deployment.
 - [ ] 11.3 Final export, then production import behind the guard (A9), then reconciliation.
-- [ ] 11.4 Images and reports migration, then real invites.
+- [ ] 11.4 Images and reports migration, then user accounts (reset emails or admin-set initial passwords), with your approval.
 - [ ] 11.5 You add the domain in Vercel; then the README "After adding your domain" updates; then T26 read-only smoke.
+
+### Stage 12 — Round 5 auth rework (**waiting for your approval; no code changed yet**)
+
+The branch still contains the round-3 implementation: invite emails, a Google button, `VITE_AUTH_PROVIDERS` and `SocialAuthButtons`. After your approval:
+
+- [ ] 12.1 Migration `…_must_change_password.sql` (S15). Nothing else in the schema changes.
+- [ ] 12.2 Server:
+  - `POST /api/users` (replaces `/invite` and `/resend-invite`) and `POST /api/auth/change-password`;
+  - the `PASSWORD_CHANGE_REQUIRED` gate in `requireAuth`;
+  - `must_change_password` in `/api/auth/me`, and cleared after a completed email reset;
+  - last-admin protection on PATCH and DELETE of User;
+  - pino redaction of `password` and `current_password`;
+  - rate limits.
+- [ ] 12.3 Frontend:
+  - delete `SocialAuthButtons.jsx` and `GoogleIcon.jsx`, and remove `VITE_AUTH_PROVIDERS` and every `signInWithOAuth`;
+  - login page: email, password, Sign in, Forgot password;
+  - `CreateUserForm`: full name, email, initial password (with Generate and Copy, as before) and role;
+  - new `/change-password` page, the forced redirect while `must_change_password` is set, and a "Change password" entry in the account menu;
+  - `/reset-password` keeps password recovery only (the invite variant goes).
+- [ ] 12.4 Scripts: `create-first-admin.js` asks for the initial password at a hidden prompt, never as an argument. `invite-users.js` becomes `create-accounts.js` (8.3).
+- [ ] 12.5 Tests:
+  - rewrite `02-auth.test.js` for T11–T15 and T27–T35;
+  - add the T31 fixture trigger (staging-only, like T7);
+  - T36 checks the built bundle for `signInWithOAuth`;
+  - unit tests for validation, the gate and last-admin protection.
+  - No existing security test is removed or weakened.
+- [ ] 12.6 Update the README and `docs/deploy/DEPLOYMENT.md` "smoke check" to the new login screen.
 
 ---
 
@@ -304,10 +345,10 @@ Levels:
 | T8 | **Idempotency:** the same `client_request_id` sent twice, sequentially and concurrently | CI | One transaction; stock decremented once; the replay returns the same transaction |
 | T9 | **Price integrity:** tampered `unit_price`, `cost_price`, totals or discount above subtotal in the request | CI | 400 or ignored; database prices are used |
 | T10 | **No self-registration:** `signUp` with the publishable key | CI | Rejected |
-| T11 | **Uninvited Google account (actual Supabase behaviour)** | M (you, on staging) | Sign-in refused and no new `auth.users` row in the dashboard. If a row appears: every API route returns 403, I add the Before User Created hook, and T11 is re-run. **Production is blocked until it passes** |
-| T12 | **Invitation:** admin invites → link → set password → login → role | CI + M | CI: `auth.admin.generateLink({type:'invite'})` gives the link without sending mail; following it, setting the password, logging in and the role are checked; a reused link is refused. M: one real invite email delivered to an address you choose (your approval) |
-| T13 | An invited user signs in with Google using the same email | M (you, on staging) | Same account and role |
-| T14 | **Password reset** | CI + M | CI: `generateLink({type:'recovery'})` → new password works, the old one fails, a reused link is refused. M: one real reset email delivered |
+| T11 | **No access without an `app_users` row** | CI | A real Supabase Auth user that no admin created (no `app_users` row) gets `403 USER_NOT_REGISTERED` on every route |
+| T12 | **Admin creates an Admin account** (replaces the old invitation test) | CI | `POST /api/users` (role `admin`) → 201 without a password in the response. The Auth user exists with a confirmed email. `app_users` has the full name, role `admin`, `auth_user_id` and `must_change_password = true`. No password is in any table or in the logs |
+| T13 | **Admin creates a Cashier account** | CI | Same with role `user`. The new cashier can sign in, and after the forced password change can use the POS but gets 403 on admin routes |
+| T14 | **Password reset (email)** | CI + M | CI: `generateLink({type:'recovery'})` (no email sent) → the new password works, the old one fails, a reused link is refused, `must_change_password` is cleared. M: one real reset email delivered to an address you choose (your approval) |
 | T15 | Demotion takes effect | CI | Next request returns 403 on admin routes |
 | T16 | **Shift report:** close → server PDF → stored → admins emailed | CI + M | PDF text and email figures equal the database exactly; financial fields in the request are rejected; the store header is escaped; another cashier can't fetch it. CI sends to Resend's test recipient. M: visual comparison of the PDF against the old layout |
 | T17 | **Image upload:** valid PNG/JPEG/WebP; renamed `.exe`; > 5 MB; SVG | CI | 201 / 400 / 413 / 400 |
@@ -319,13 +360,23 @@ Levels:
 | T23 | **Secret hygiene** | CI | A planted key blocks the commit; the full-history scan is clean; `check-public-env` rejects a planted `VITE_SUPABASE_SECRET_KEY` |
 | T24 | **Deployed staging smoke + HTTP security** | DEP | `/health` 200; CORS allows the staging origin and refuses others; `helmet` headers present; 429 after the rate limit; errors carry no stack or SQL; HTTPS only |
 | T25 | **Config refusal** | CI | The server refuses to boot on a missing variable, a `YOUR_…` placeholder, a project ID mismatch or an unsupported currency |
+| T27 | **Email/password login** | CI | A correct email and password returns a session. `/api/auth/me` returns the role from `app_users`, not from token metadata |
+| T28 | **Invalid password rejected** | CI | A wrong password, or an unknown email, gets the same generic error and no session. The account isn't locked out, because Supabase's rate limit applies instead (T32) |
+| T29 | **Unauthorized account creation rejected** | CI | `POST /api/users` with no token → 401; as a cashier → 403 (including attempts to create an Admin); as an account with no `app_users` row → 403. In every case no Auth user and no `app_users` row is created |
+| T30 | **Duplicate email rejected** | CI | Creating an existing email (any letter case) → `409 USER_EXISTS`. Nothing new in Auth or `app_users` |
+| T31 | **Account creation failure handling** | CI | A staging-only fixture trigger makes the `app_users` insert fail. Result: 500 with no internals, the Auth user created a moment earlier is **deleted** (no orphan in `auth.users`), and nothing remains in `app_users`. Also: invalid full name, email, password or role → 400 before Supabase is called |
+| T32 | **Rate limits on auth** | CI + M | CI: `POST /api/users` and `POST /api/auth/change-password` return 429 after their limits. M: the Supabase Auth rate limits for sign-in and password-reset emails are set in the dashboard (screenshot in `TEST-REPORT.md`), and a burst of wrong-password sign-ins gets throttled |
+| T33 | **Password change on first login** | CI | A new user's API calls → `403 PASSWORD_CHANGE_REQUIRED` (except `/api/auth/me` and the password change). A wrong current password → 401. A weak or unchanged new password → 400. A correct change → 204, after which `must_change_password` is false, the old password fails, the new one works, and other sessions are signed out. Browser walkthrough (T20): login goes to `/change-password` and no other page opens until the password is changed |
+| T34 | **Change password later** | CI | A signed-in user without the flag changes their password with the current one. The same checks apply as T33 |
+| T35 | **Role protection** | CI | A cashier can't change any role. Nobody can change their own role (admin → 409). The **last admin** can't be demoted or deleted (`409 LAST_ADMIN`). With two admins, demoting one works and takes effect on its next request (T15) |
+| T36 | **No social login anywhere** | CI | Supabase project settings list no enabled provider except email (Auth admin settings API, or a dashboard screenshot). The built frontend contains no `signInWithOAuth` and no provider buttons. `/register` has no form. A `signUp` call is refused (T10) |
 | T26 | **Production smoke, read-only**, after an approved cutover | P | `/health`, login, one read per role. No writes, no test data |
 
 **Tests that can't be reproduced the old (local) way, and what replaces them:**
 - **Mailpit inbox capture** → `generateLink` in CI (T12, T14) plus one real delivery each, done by you.
 - **Disposable local database reset between runs** → run prefixes + cleanup + sweep, serialized CI, and an optional guarded `db reset --linked` on staging only.
 - **Offline rollback trigger** → a prefix-scoped fixture trigger on staging (T7).
-- **Google OAuth** was never automatable (real Google accounts are needed) → it stays manual (T11, T13).
+- **Round 5:** there is no OAuth anymore, so every authentication test except real email delivery and the dashboard rate-limit check is automated.
 
 ---
 
@@ -334,9 +385,10 @@ Levels:
 Each item is checked on staging (T20).
 
 **Auth:**
-- Login (email + Google)
+- Login (email and password only)
 - Forgot / reset password
-- Invite + set password
+- Admin creates Admin and Cashier accounts (full name, email, initial password, role)
+- Forced password change at first login; change password any time
 - `/register` notice
 - Logout
 - Unauthenticated → `/login`
@@ -401,7 +453,7 @@ Each item is checked on staging (T20).
   - Top customers
   - Product table
   - CSV export
-- Users + invite
+- Users: list, create account, change role (with last-admin protection)
 - Restock Advisor with tool-call display
 
 **Responsive:**
@@ -413,11 +465,11 @@ Each item is checked on staging (T20).
 
 | Requirement | Covered by |
 |---|---|
-| D1 Invites, users set their own password | 5.7, 6.2, T12 |
+| D1 Admin creates accounts with a temporary password (round 5) | A20, 5.7, 6.2, Stage 12, T12, T13, T29–T31, T33 |
 | D2 Admin-only returns | 5.4, T2 |
 | D3 Every stock change audited | 5.2, 5.4, 5.5, T6, T7 |
 | D4 Refuse short-stock sales, never clamp | 5.3, T5 |
-| D5 Google only | 6.2, T11, T13 |
+| D5 Email and password only, no social login (round 5) | A19, 6.2, Stage 12, T27, T28, T36 |
 | D6 Cost visible to cashiers, no cashier writes | A5, 5.1, T2, T9 |
 | R1–R10 (round 2) | A1–A6, section B, T2–T20, gates |
 | C1 Public images, private reports | A12, 3.3, T3 |
@@ -425,7 +477,14 @@ Each item is checked on staging (T20).
 | C3 Server-generated official PDF | A8, 5.6, T16 |
 | C4 Migration target guard | A9, 2.4, T22 |
 | C5 Git secrets | A13, 0.4, 10.3, T23 |
-| C6 Uninvited Google verified on staging | A10, T11 |
+| C6 No access without an admin-created account | A10, T10, T11 |
+| **Round 5:** | |
+| N10 Email/password only, no OAuth anywhere | A19, Stage 12, T36 |
+| N11 Admin-only account creation, validation, failure safety | A20, T12, T13, T29, T30, T31 |
+| N12 Temporary password, first-login change, change any time | A20, S15, T33, T34 |
+| N13 Login/reset rate limits; passwords never stored or logged | T12, T32 |
+| N14 Role rules: no self-role change, last admin protected | T35, T15 |
+| N15 Anthropic optional | A21 (implemented), unit tests, T18 |
 | C7 Model verified, configurable | A11, 5.10, T18 |
 | C8 Obsolete files deleted on the branch | B.5, 10.2 |
 | C9 No production without approval | Section G |
@@ -449,12 +508,13 @@ Each item is checked on staging (T20).
 
 **Each of these needs your explicit approval:**
 1. Importing your real Base44 export into **staging** (T19). It contains personal data.
-2. Any real email: invites, reset tests to real inboxes, report emails to real admins.
+2. Any real email: password-reset emails to real inboxes, report emails to real admins.
+3. Creating any real (non-test) user account.
 3. **Production:**
    - database changes;
    - data import;
    - deployment or cutover;
-   - real invitations or bulk emails.
+   - real user accounts or bulk emails.
    - All of these come only after T1–T25 pass on staging and you sign off on `TEST-REPORT.md`.
 4. **DNS: never done by me.**
 
@@ -467,7 +527,7 @@ Each item is checked on staging (T20).
 | H.1 | **Staging Supabase project** (its project ID goes in `targets.json`, which is not secret). Then, in a git-ignored `server/.env.staging` that you fill in yourself, never in chat: the staging values from `server/.env.example`, plus `SUPABASE_ACCESS_TOKEN` (a **scoped** personal access token for the staging project) and `SUPABASE_DB_PASSWORD` | Stage 4 |
 | H.2 | A private GitHub repository + a GitHub **`staging` environment** with the same secrets | Stage 7 (CI) |
 | H.3 | Railway project with a `staging` environment; Vercel project linked to the repository | Stage 7 |
-| H.4 | Google OAuth client for staging; Resend API key (+ sending domain later); Anthropic API key, all in the dashboards | Stage 4.3 / 5.9 / 5.10 |
+| H.4 | Resend API key (+ sending domain later), entered in the dashboards. Optionally an Anthropic API key; without it only the Restock Advisor is off. **No OAuth credentials of any kind** | Stage 4.3 / 5.9 / 5.10 |
 | H.5 | Base44 export + report PDFs or links + the `restock_advisor` config, if obtainable | Stage 8 / T19 |
 | H.6 | The production Supabase project ID (for `targets.json`) | Stage 11 |
 
@@ -482,7 +542,7 @@ Each item is checked on staging (T20).
 | K3 | A half-cent rounding difference against old receipts | New sales only; documented |
 | K4 | Store header comes from the closing device's `localStorage` | Display text only, escaped |
 | K5 | jsPDF 4 under Node not yet verified | Checked in 5.6; I stop and report if it fails |
-| K6 | Supabase may let uninvited Google users create an auth row | Matching on `auth_user_id` only; T11; the hook as fallback |
+| K6 | An admin-chosen temporary password is known to the admin until it's changed | It's forced to change at first login (S15 gate); the API refuses everything else until then; T33 |
 | K7 | The model check needs your key | Boot check + T18 on staging |
 | K8 | Old report PDFs may be unretrievable | Listed, never invented |
 | K9 | Changing the display currency from the hard-coded `$` touches every money label | Done in the same pass as K1 (6.5); USD by default, so nothing changes unless you set it |
@@ -493,11 +553,11 @@ Each item is checked on staging (T20).
 |---|---|---|---|
 | L1 | No offline development | Server integration work needs the staging project online. Free-plan projects pause after inactivity | Unit-testable parts (Stages 1–3) proceed without it; un-pause staging or use a paid plan |
 | L2 | **Staging is shared** by automated tests, me and you | Test rows can briefly appear in staging screens | `t_<runid>_` prefix, cleanup and sweep; serialized CI; destructive suites paused during T19/T20 |
-| L3 | No captured inbox (Mailpit) | Automated tests prove the auth links, not that the mail arrives | `generateLink` in CI + one real delivery each for invite, reset and report (manual, your approval). Resend without a verified domain can only send to your own account email, and free-plan daily limits apply |
+| L3 | No captured inbox (Mailpit) | Automated tests prove the auth links, not that the mail arrives | `generateLink` in CI + one real delivery each for password reset and report (manual, your approval). Resend without a verified domain can only send to your own account email, and free-plan daily limits apply |
 | L4 | `supabase start`, `db diff`, `db pull` and `test db` (pgTAP) need Docker | No auto-generated migrations or pgTAP suite | Hand-written, reviewed migrations; database checks in the Node suite; advisors via `--linked` or the dashboard |
 | L5 | No throwaway database | A bad migration on staging needs a forward fix or a guarded `db reset --linked` (staging only) | Migrations are reviewed before push; the guard refuses resets on production |
 | L6 | The rollback test installs a trigger on shared staging | A short window where the trigger exists | It fires only on the run's `fail_` prefix, is dropped in `finally`, and the sweep removes leftovers |
 | L7 | CI needs staging secrets in GitHub | One more place that holds staging secrets | A GitHub environment scoped to `staging` only; production secrets never go into GitHub |
 | L8 | Network latency and service limits (Supabase auth email limits, Resend, Anthropic cost) | Slower tests; T18 costs a few cents | Prompt suite run once per release, not per commit |
-| L9 | I can't sign in with Google or read your inbox | T11, T13 and the real-delivery parts of T12, T14 and T16 need you | Step-by-step instructions in `TEST-REPORT.md` |
+| L9 | I can't read your inbox | The real-delivery parts of T14 and T16, and the dashboard part of T32, need you | Step-by-step instructions in `TEST-REPORT.md` |
 | Optional | Supabase Branching (per-PR databases) would remove L2 and L5 but is a paid feature | — | Not planned unless you want it |

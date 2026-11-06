@@ -26,12 +26,12 @@ VITE_BASE44_APP_BASE_URL=your_backend_url
 
 ## Environment variables (Vercel + Railway + Supabase)
 
-Templates with placeholders: [`.env.example`](.env.example) (frontend) and [`server/.env.example`](server/.env.example) (backend). **Real values are entered only in the Vercel, Railway, Supabase, Google, Resend and GitHub dashboards. They never go into git or a chat.**
+Templates with placeholders: [`.env.example`](.env.example) (frontend) and [`server/.env.example`](server/.env.example) (backend). **Real values are entered only in the Vercel, Railway, Supabase, Resend and GitHub dashboards (and the Anthropic console, if you use the optional AI advisor). They never go into git or a chat.**
 
 **Rules:**
 - `VITE_` variables are compiled into the browser bundle, so they are **public**. Only the Supabase URL, the publishable key, the API URL and display settings may use `VITE_`. The build refuses secret-looking `VITE_` variables.
-- These stay on Railway (and in CI secrets): the Supabase secret key, the database URL and password, and the Resend and Anthropic keys.
-- The Google client secret lives **only** in Supabase.
+- These stay on Railway (and in CI secrets): the Supabase secret key, the database URL and password, the Resend key, and the optional Anthropic key.
+- Sign-in is **email and password only**. There are no OAuth or social-login credentials of any kind.
 - Staging and production use **separate** Supabase projects, Railway environments and keys. Never reuse production keys in staging.
 
 ### Frontend: Vercel → Project → Settings → Environment Variables
@@ -43,8 +43,7 @@ Set the **Preview** scope to the staging values and the **Production** scope to 
 | `VITE_SUPABASE_URL` | yes | `https://YOUR_SUPABASE_PROJECT_ID.supabase.co` | Supabase → Project Settings → API |
 | `VITE_SUPABASE_PUBLISHABLE_KEY` | yes | `YOUR_SUPABASE_PUBLISHABLE_KEY` | Supabase → API Keys → Publishable (`sb_publishable_…`). **Never** the secret key |
 | `VITE_API_URL` | yes | `https://YOUR_RAILWAY_BACKEND_URL` | Railway service → Settings → Domains (generated `*.up.railway.app`) |
-| `VITE_APP_URL` | prod | `https://YOUR_PRODUCTION_DOMAIN` | Auth redirect base. Leave empty for Preview, where each preview uses its own origin |
-| `VITE_AUTH_PROVIDERS` | yes | `google` | Social buttons shown. Add others only after configuring them in Supabase |
+| `VITE_APP_URL` | prod | `https://YOUR_PRODUCTION_DOMAIN` | Base for password-reset links. Leave empty for Preview, where each preview uses its own origin |
 | `VITE_CURRENCY` | yes | `USD` | ISO 4217, 0 or 2 decimals; must equal `CURRENCY` |
 
 ### Backend: Railway → service → Variables, per environment (`staging`, `production`)
@@ -57,7 +56,7 @@ Set the **Preview** scope to the staging values and the **Production** scope to 
 | `LOG_LEVEL` | no | `info` | |
 | `CURRENCY` | yes | `USD` | Must equal `VITE_CURRENCY` |
 | `STORE_TIMEZONE` | no | `UTC` | IANA time zone (e.g. `Africa/Lagos`) for times on shift reports and emails. Railway servers run in UTC |
-| `APP_URL` | yes | `https://YOUR_FRONTEND_URL` | Used in email links and invite and reset redirects |
+| `APP_URL` | yes | `https://YOUR_FRONTEND_URL` | Used in email links (password reset, reports) |
 | `FRONTEND_ORIGINS` | yes | `https://YOUR_FRONTEND_URL` | CORS allow-list, comma-separated. On staging add `https://b12-*-YOUR_VERCEL_TEAM.vercel.app` |
 | `SUPABASE_URL` | yes | `https://YOUR_SUPABASE_PROJECT_ID.supabase.co` | |
 | `SUPABASE_PROJECT_ID` | yes | `YOUR_SUPABASE_PROJECT_ID` | Project reference ID, the subdomain of the URL |
@@ -117,20 +116,25 @@ Integration tests (`npm run test:integration` in `server/`, or Actions → "Stag
 |---|---|---|
 | Authentication → Sign In / Providers → **Allow new users to sign up** | **Off** | **Off** |
 | Email provider | On | On |
-| Google provider | On, with the staging Google client ID + secret | On, with the production Google client ID + secret |
+| **Every other provider** (Google, Apple, Facebook, Azure/Microsoft, …) | **Off**, not configured | **Off**, not configured |
+| Password policy | Minimum length 10, letters and digits | same |
+| Secure password change | On | On |
+| Authentication → Rate Limits | Sign-in and password-reset email limits per IP and per hour (the defaults or stricter) | same |
 | URL Configuration → Site URL | Staging Vercel URL | `https://YOUR_PRODUCTION_DOMAIN` (or the production `*.vercel.app` URL until the domain is added) |
 | URL Configuration → Redirect URLs | `https://YOUR_STAGING_URL/**`, `https://b12-*-YOUR_VERCEL_TEAM.vercel.app/**` | `https://YOUR_PRODUCTION_DOMAIN/**` only |
 | Authentication → SMTP (custom) | Host `smtp.resend.com`, port `465`, user `resend`, password = a Resend API key, sender = `EMAIL_FROM` | same, with the production key |
 | JWT signing keys | Asymmetric (default for new projects) | same |
 | Storage | Buckets come from migration `0003_storage.sql`; create nothing by hand | same |
 
-### Google OAuth
+### Sign-in: email and password only
 
-1. Google Cloud Console → APIs & Services → Credentials → **Create OAuth client ID** → *Web application*. Create **one client per environment** (staging and production).
-2. **Authorized JavaScript origins:** the frontend URL(s) of that environment.
-3. **Authorized redirect URI:** `https://YOUR_SUPABASE_PROJECT_ID.supabase.co/auth/v1/callback`, the Supabase callback, not the app.
-4. OAuth consent screen: app name, support email, and the scopes `email`, `profile`, `openid`. While the screen is in *Testing*, only listed test users can sign in. Publish it before production.
-5. Paste the **client ID and client secret only into Supabase → Authentication → Providers → Google.** They never go in Vercel, Railway, GitHub or any `.env` file.
+- Users sign in with **email and password** through Supabase Auth, which hashes and checks the passwords. The application never stores a password.
+- There is **no social login** and **no public registration**.
+- **Accounts:** an administrator creates every Admin and Cashier account in **Admin → Users** with full name, email, an initial password and the role.
+  - The initial password is **temporary**: at first login the user must choose a new one before any other page opens.
+  - Users can change their password at any time from the account menu.
+- **Forgot password:** the login page's "Forgot password?" link sends a reset email through Supabase, using the Resend SMTP settings above.
+- **First administrator:** created once with `server/scripts/create-first-admin.js`, behind the target guard (`docs/deploy/DEPLOYMENT.md`).
 
 ### Staging vs production setup order
 
@@ -144,9 +148,8 @@ I make no DNS changes. Once you add `YOUR_PRODUCTION_DOMAIN` in Vercel → Domai
 1. **Vercel (Production):** `VITE_APP_URL=https://YOUR_PRODUCTION_DOMAIN`, then redeploy.
 2. **Railway (production):** `APP_URL=https://YOUR_PRODUCTION_DOMAIN`. In `FRONTEND_ORIGINS`, replace the `*.vercel.app` URL with `https://YOUR_PRODUCTION_DOMAIN`.
 3. **Supabase (production) → URL Configuration:** Site URL = `https://YOUR_PRODUCTION_DOMAIN`; Redirect URLs = `https://YOUR_PRODUCTION_DOMAIN/**`. Remove the temporary `vercel.app` entry.
-4. **Google OAuth client (production):** add `https://YOUR_PRODUCTION_DOMAIN` to the Authorized JavaScript origins. The redirect URI (Supabase callback) is unchanged.
-5. **Resend:** add and verify the domain (its DNS records are added by you at your DNS provider), then set `EMAIL_FROM` (Railway) and the Supabase SMTP sender to an address on it.
-6. Optional: a custom API domain in Railway, then update `VITE_API_URL`.
+4. **Resend:** add and verify the domain (its DNS records are added by you at your DNS provider), then set `EMAIL_FROM` (Railway) and the Supabase SMTP sender to an address on it.
+5. Optional: a custom API domain in Railway, then update `VITE_API_URL`.
 
 ---
 
@@ -336,7 +339,7 @@ erDiagram
 
 | Table | Read | Create | Update | Delete |
 | --- | --- | --- | --- | --- |
-| `User` | own record / admins | admins only (invite) | admins | admins |
+| `User` | own record / admins | admins only (create account with initial password) | admins | admins |
 | `Category` | everyone signed in | admin | admin | admin |
 | `Supplier` | admin | admin | admin | admin |
 | `Product` | active products for all; inactive only admins | admin | admin | admin |

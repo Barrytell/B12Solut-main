@@ -4,7 +4,7 @@ Status: **design only — awaiting approval before Phase 3**. No application fil
 Round 3 corrections (2026-11-05), marked "correction, round 3" in the text:
 - money precision (§3, §3.4);
 - server-generated shift reports (§3.3, S13–S14);
-- uninvited Google accounts (§4);
+- account access only through `app_users` (§4);
 - the model check (§3.9);
 - migration target protection (§6);
 - storage access (§7);
@@ -17,9 +17,13 @@ Round 4 (2026-11-05): **cloud-only development, with no Docker and no local Supa
 - The full environment variable reference is in the README.
 - One configurable currency (§11).
 - The domain is not blocking: Railway/Vercel generated URLs until you add the domain in Vercel, and **I make no DNS changes** (§9).
+Round 5 (2026-11-06):
+- **Email-and-password authentication only.** All social login (Google, Apple, Facebook, Microsoft and any other OAuth provider) is removed from the plan, not deferred.
+- Admins create accounts with an initial password, and users must change it at first login (D1, D5, §3.2, §4, S15).
+- **The Anthropic API is an optional integration.** Without a key, only the Restock Advisor is off (§3.9).
 Date: 2026-11-05
 
-Target: React 18 + Vite on **Vercel** · Node 22 + Express on **Railway** · **Supabase** Postgres, Auth and Storage · **Resend** email · **Anthropic** API.
+Target: React 18 + Vite on **Vercel** · Node 22 + Express on **Railway** · **Supabase** Postgres, Auth (email and password) and Storage · **Resend** email · **Anthropic** API (optional, Restock Advisor only).
 
 ---
 
@@ -29,11 +33,11 @@ The design below takes the recommended option for each item. Change any of them 
 
 | # | Decision | Recommended | Why / what changes |
 |---|---|---|---|
-| D1 | How admins create users | **Supabase invite email.** The user verifies their email and sets their own password from the link. | Today the admin types a password, then enters an OTP the new user reads to them. With an invite the admin never knows the password, and verification happens at the same time. `CreateUserForm` loses its password and OTP steps and gains "Invite sent / Resend". |
+| D1 | How admins create users | **Round 5: the admin creates the account** in User Management with full name, email, **initial password** and role (Admin or Cashier). The initial password is **temporary**: the user must change it at first login. | Replaces the earlier invite-email decision. The backend creates the account with the Supabase Auth Admin API (§3.2, §4). No public registration. |
 | D2 | Who can process returns | **Admins only.** | The only route to `ReturnModal` today is the admin Dashboard. The refund price is editable, so restricting it to admins removes no feature. |
 | D3 | Stock changed from the product form | **Write an audit row** (reason "Edited in product form"). | Today these edits leave no `StockAdjustment` row. The requirement is that every stock change is atomic and audited. |
 | D4 | Sale when stock is short | **Reject with 409** and the available quantity. | Today the browser clamps stock to 0 and the sale still goes through, so a race can oversell silently. |
-| D5 | Microsoft, Facebook and Apple login buttons | **Hidden until configured.** Only Google is enabled. | Each needs its own provider credentials in Supabase. `VITE_AUTH_PROVIDERS=google` turns buttons on without a code change. |
+| D5 | Sign-in methods | **Round 5 (firm): email and password only.** No Google, Apple, Facebook, Microsoft or any other social/OAuth login. | All OAuth configuration, components, buttons, callback routes and variables are removed from the plan. Social login is not a future option. |
 | D6 | Cashiers seeing `cost_price` | **Keep it visible**, as today. | Hiding it is optional hardening. The cart uses it today. |
 | D7 | Domains | `app.<your-domain>` → Vercel, `api.<your-domain>` → Railway | Please send your actual domain. |
 
@@ -84,7 +88,7 @@ Notation: `list(sort, limit)` and `filter(query, sort, limit)`. The default limi
 
 | File:line | Call | Replacement |
 |---|---|---|
-| CreateUserForm.jsx:65 | `User.update(id, {display_name, role})` | folded into `POST /api/users/invite` |
+| CreateUserForm.jsx:65 | `User.update(id, {display_name, role})` | folded into `POST /api/users` (round 5) |
 | SaleTerninal.jsx:72 | `Shift.create({...})` | `POST /api/shifts/start` |
 | SaleTerninal.jsx:177, :183, :200 | `Transaction.create`, a `Product.update(stock)` loop, `Shift.update(totals)` | **one atomic** `POST /api/sales` |
 | ReturnModal.jsx:86 + returns.js:72, :78 | `Return.create`, `Product.update(stock)`, `StockAdjustment.create` | **one atomic** `POST /api/returns` |
@@ -105,10 +109,10 @@ Notation: `list(sort, limit)` and `filter(query, sort, limit)`. The default limi
 | AppLayout.jsx:11, PageNotFound.jsx:14 | `auth.me()` | `useAuth().user` (same data, already loaded) |
 | Sidebar.jsx:93 | `auth.logout()` | `useAuth().logout()` → `supabase.auth.signOut()` |
 | Login.jsx:26 | `auth.loginViaEmailPassword` | `supabase.auth.signInWithPassword` |
-| SocialAuthButtons.jsx:42 | `auth.loginWithProvider(key, returnTo)` | `supabase.auth.signInWithOAuth({provider})` |
+| SocialAuthButtons.jsx:42 | `auth.loginWithProvider(key, returnTo)` | **Removed (round 5).** The component and its use on `/login` are deleted; email and password only. |
 | ForgotPassword.jsx:19 | `auth.resetPasswordRequest(email)` | `supabase.auth.resetPasswordForEmail` |
 | ResetPassword.jsx:28 | `auth.resetPassword({resetToken, newPassword})` | recovery session + `supabase.auth.updateUser({password})` |
-| CreateUserForm.jsx | `auth.register`, `verifyOtp`, `resendOtp` | `POST /api/users/invite`, `POST /api/users/:id/resend-invite` (D1) |
+| CreateUserForm.jsx | `auth.register`, `verifyOtp`, `resendOtp` | `POST /api/users` with full name, email, initial password and role (D1, round 5). There's no OTP step: the admin-created password is temporary. |
 | OAuthConsent.jsx | `auth.isAuthenticated`, `/api/apps/{id}/mcp/*` | **Removed.** Base44-only MCP consent screen; no route uses it. |
 | ProductImageField.jsx:23 | `integrations.Core.UploadPublicFile` | `POST /api/uploads/product-image` → `{file_url}` (same shape) |
 | shiftReport.js:345, :448 | `UploadPublicFile(pdf)`, `SendEmail` per admin | `POST /api/shifts/:id/report`: the server generates the official PDF from database values, stores it and emails it (§3.3) |
@@ -131,12 +135,12 @@ Fix: rename the files to match the imports (`SaleTerminal.jsx`, `Cart.jsx`, `Who
 
 ```
 Browser (Vercel, static SPA)
-  ├─ supabase-js (publishable key) ── Supabase Auth only: login, OAuth, reset, session refresh
+  ├─ supabase-js (publishable key) ── Supabase Auth only: email/password login, reset, session refresh
   └─ fetch + Bearer access token ──▶ Express API (Railway)
                                         ├─ verifies JWT (Supabase signing keys / JWKS)
                                         ├─ loads app_users row → role
                                         ├─ pg pool (Supavisor session pooler) ──▶ Supabase Postgres
-                                        ├─ supabase-js (secret key) ── Auth admin (invites), Storage
+                                        ├─ supabase-js (secret key) ── Auth admin (create users, passwords), Storage
                                         ├─ Resend ── shift reports, low-stock alerts
                                         └─ Anthropic ── Restock Advisor
 ```
@@ -154,7 +158,7 @@ Browser (Vercel, static SPA)
   src/email/{shiftReport,lowStock}.js     (templates moved from src/utils, values HTML-escaped)
   src/reports/shiftReportPdf.js           (official PDF, moved from src/utils/shiftReport.js)
   src/lib/money.js
-  scripts/{import-base44,migrate-images,migrate-reports,invite-users}.js  scripts/lib/target-guard.js  scripts/targets.json
+  scripts/{import-base44,migrate-images,migrate-reports,create-accounts}.js  scripts/lib/target-guard.js  scripts/targets.json
   supabase/migrations/   0001_schema.sql  0002_security.sql  0003_storage.sql   (Supabase CLI: --workdir server)
   supabase/test-fixtures/  staging-only test helpers (never applied to production)
   test/
@@ -220,7 +224,7 @@ The client shim throws an `Error` carrying `message` and `status`, so existing `
 
 | Entity | Read (admin / cashier) | Create, update, delete |
 |---|---|---|
-| User | all / own row only | admin: PATCH `display_name`, `role` only. An admin cannot demote themself. Creation goes through invite (§3.2). |
+| User | all / own row only | admin: PATCH `full_name`, `display_name`, `role` only. Nobody can change their own role, and the last remaining admin can't be demoted or deleted (`409 LAST_ADMIN`). Creation goes through `POST /api/users` (§3.2). Cashiers can't write user rows at all. |
 | Category | all / all | admin |
 | Supplier | all / — | admin |
 | Product | all / `is_active = true` forced | admin. A PATCH that changes `stock_quantity` locks the row and writes a `stock_adjustments` row in the same transaction (D3). DELETE keeps sale lines and the audit log (FK set null). |
@@ -244,8 +248,10 @@ The client shim throws an `Error` carrying `message` and `status`, so existing `
 | Method | Path | Body | Response |
 |---|---|---|---|
 | GET | `/api/auth/me` | – | `{id, email, full_name, display_name, role, created_date}`. Returns 403 `USER_NOT_REGISTERED` if the token is valid but no `app_users` row is linked (the existing `UserNotRegisteredError` screen shows). |
-| POST | `/api/users/invite` (admin) | `{email, display_name, role: 'admin'\|'user'}` | `201 {user}`. Creates the `app_users` row, calls `auth.admin.inviteUserByEmail(email, {redirectTo: APP_URL + '/reset-password'})` and stores `auth_user_id`. Returns 409 if the email already exists. |
-| POST | `/api/users/:id/resend-invite` (admin) | – | `204`. Only works while the user hasn't accepted the invite. |
+| POST | `/api/users` (admin, rate-limited) | `{full_name, email, password, role: 'admin'\|'user'}` | `201 {user}`, without the password. Validates every field (password policy §4), returns `409 USER_EXISTS` for a duplicate email, creates the Auth account with `auth.admin.createUser({email, password, email_confirm: true})`, then inserts `app_users` with `auth_user_id` and `must_change_password = true`. If the insert fails, the Auth user is deleted, so no incomplete account is left. Cashiers get 403. |
+| POST | `/api/auth/change-password` (any signed-in user, rate-limited) | `{current_password, new_password}` | `204`. Verifies the current password, applies the policy (new ≠ current), sets the password through the Auth Admin API, clears `must_change_password`, and signs other sessions out. `400` for a weak password, `401` for a wrong current password. |
+
+**Round 5 removes** `/api/users/invite` and `/api/users/:id/resend-invite`: there are no invitation emails. `GET /api/auth/me` also returns `must_change_password`. While it's `true`, every other API route answers `403 PASSWORD_CHANGE_REQUIRED` (§4).
 
 ### 3.3 Shifts
 
@@ -342,6 +348,11 @@ Response `201 {return, restocked_units, written_off_units}`.
 
 These are the fields `MessageBubble` already renders: `tool_calls[].name`, `status`, `arguments_string` and `results`.
 
+**Optional integration (round 5, implemented):**
+- Without `ANTHROPIC_API_KEY`, or with a `YOUR_…` placeholder, the server starts normally and only the advisor is disabled.
+- `GET /api/restock-advisor/status` returns `{enabled: false, reason: 'not_configured'}`, the admin page shows "AI Restock Advisor is not configured" with a setup hint, and chat returns `503 AI_NOT_CONFIGURED`.
+- With a valid key on Railway, the advisor turns on automatically at the next deploy. The key exists only in Railway (and optionally in the GitHub `staging` environment for the opt-in AI tests).
+
 How the server runs it:
 - Anthropic TypeScript SDK with the Tool Runner. The model is **configurable through the server environment** (`ANTHROPIC_MODEL`), with a default of `claude-opus-5-5`. That ID was checked on 2026-11-05 against Anthropic's models overview, which lists it as a current model retiring no sooner than 2027-09-22.
 - **Verified before use:** on startup, the server calls the Models API (`models.retrieve(ANTHROPIC_MODEL)`) with its own key. If the model isn't available to that key, only `/api/restock-advisor/chat` is disabled; it returns `503 AI_MODEL_UNAVAILABLE` and the error is logged. The rest of the API keeps running. `npm run check:model` runs the same check by hand on staging.
@@ -364,34 +375,67 @@ Answers will not match the old agent word for word. If you can export the agent 
 
 ---
 
-## 4. Authentication flow
+## 4. Authentication: email and password only (round 5)
 
-**Supabase project settings:**
-- Email provider on, with **"Allow new users to sign up" off**.
-- Google provider on.
-- **Staging project:**
-  - Site URL = the staging Vercel URL.
-  - Redirect URLs: the staging Vercel URL `/**` and the Vercel preview pattern `https://*-<vercel-team>.vercel.app/**`.
-- **Production project:**
-  - Site URL = `https://YOUR_PRODUCTION_DOMAIN`.
-  - Redirect URL: `https://YOUR_PRODUCTION_DOMAIN/**` only.
-  - Until you add the domain in Vercel, use the production `*.vercel.app` URL; README "After adding your domain" lists what to change.
-- No `localhost` redirect in either project, since there is no local stack.
-- **Custom SMTP through Resend.** The built-in sender is heavily rate-limited and not meant for production.
-- Asymmetric JWT signing keys.
+**Firm requirement (round 5):**
+- Supabase Auth with **email and password only**.
+- There is **no social login of any kind**: no Google, Apple, Facebook, Microsoft or other OAuth provider. That means no OAuth callback routes, no OAuth components, no provider buttons, and no OAuth client IDs, secrets or redirect URLs.
+- Social login is **not** kept as a future option.
+- There is **no public registration**: only an administrator creates accounts.
+
+**Supabase project settings** (staging and production alike):
+- **Email provider: on.** "Allow new users to sign up": **off**. Every **other provider: off**, and none is configured.
+- **Password policy:** minimum length 10, requiring letters and digits. The backend validates the same rule, so a weak password fails before Supabase is called.
+- **Secure password change: on.** It makes Supabase require recent authentication to change a password.
+- **Auth rate limits** (Authentication → Rate Limits) for **sign-in** and **password-reset email** requests per IP and per hour. Login and reset go from the browser straight to Supabase Auth, so this is where they are limited. Our own auth endpoints (account creation and password change) have their own Express rate limits.
+- **URL configuration:**
+  - Staging: Site URL is the staging Vercel URL; Redirect URLs are that URL `/**` plus the preview pattern `https://*-<vercel-team>.vercel.app/**`.
+  - Production: Site URL and Redirect URL are `https://YOUR_PRODUCTION_DOMAIN` only.
+  - These are used **only** for password-reset links.
+- **Custom SMTP through Resend** for the reset emails.
+- **Asymmetric JWT signing keys.**
+- Passwords are hashed and verified **by Supabase Auth only**. No application table stores a password or a password hash, ever.
 
 | Flow | Implementation |
 |---|---|
-| Session | `supabase-js` in the browser stores the session and refreshes it automatically. `src/api/client.js` reads `session.access_token` for every request. |
-| AuthContext | Keeps the **same context shape** (`user, isAuthenticated, isLoadingAuth, authError, logout, navigateToLogin, checkAppState`), so `ProtectedRoute` and `AdminRoute` stay unchanged. On start it calls `getSession()`, subscribes to `onAuthStateChange`, then calls `GET /api/auth/me` for role and display name. `appPublicSettings` and `isLoadingPublicSettings` are Base44-only and are dropped (nothing reads them outside AuthContext). |
-| Admin and cashier login | `signInWithPassword` on `/login`, then `safeReturnTo()`. Roles come from `app_users.role`, **never** from JWT `user_metadata` (that is user-editable). |
-| Google sign-in | `signInWithOAuth({provider:'google', options:{redirectTo}})`. With sign-ups off, only invited emails can get in. Supabase docs state that identities with the same email are linked automatically, so an invited user can use either method. **Two independent barriers against uninvited Google accounts (correction, round 3):**<br>(1) With sign-ups off, Supabase should refuse to create the user. This is **tested on staging with a real Google account (T11)**: no `auth.users` row, no session.<br>(2) Even if a row were created, `requireAuth` matches **only** on `app_users.auth_user_id = sub`, which is set by the invite and never linked by email at login. So any other account gets `403 USER_NOT_REGISTERED` on every route.<br>If T11 shows Supabase does create the user, a **Before User Created auth hook** that rejects any email without a pending invite is added and T11 re-run. Production is blocked until T11 passes. |
-| Email verification | The invite link confirms the email address. With signups disabled there is no self-signup that would need confirming. |
-| Invite acceptance | The link lands on `/reset-password` with a session. The page shows "Set your password" and calls `updateUser({password})`. |
-| Password reset | `/forgot-password` calls `resetPasswordForEmail(email, {redirectTo: APP_URL + '/reset-password'})`. `/reset-password` waits for the `PASSWORD_RECOVERY` session, then calls `updateUser({password})`. The `?token=` query parameter goes away; old Base44 reset links stop working. |
+| Login screen | Email address, password, **Sign in** button and a **Forgot password?** link. Nothing else: no social buttons, no sign-up link. `signInWithPassword`, then `safeReturnTo()`. A wrong password shows one generic "Invalid email or password" message (no account enumeration). |
+| Session | `supabase-js` stores the session and refreshes it. `src/api/client.js` sends `session.access_token` with every request. |
+| AuthContext | Same context shape as today, so `ProtectedRoute` and `AdminRoute` stay unchanged. It loads `GET /api/auth/me`, which returns the role, display name and `must_change_password`. |
+| Backend verification | `requireAuth` verifies the token with `getClaims` (JWKS), then loads `app_users` by `auth_user_id = sub`. Roles come **only** from `app_users.role`, never from token metadata. `requireAdmin` checks `role = 'admin'`. A signed-in Auth user without an `app_users` row gets `403 USER_NOT_REGISTERED`. |
+| **Admin creates an account** | User Management → "Create user", with full name, email, initial password and role (Admin or Cashier). This calls **`POST /api/users`** (admin only, rate-limited). The backend steps are listed below the table. |
+| **Temporary password, first login** | The initial password is temporary (`app_users.must_change_password = true`, S15). While it is set, `requireAuth` answers **`403 PASSWORD_CHANGE_REQUIRED`** to every API route except `GET /api/auth/me` and `POST /api/auth/change-password`. The frontend sends the user to **`/change-password`**, and no other page loads until the password is changed. |
+| **Change password** (first login or any time later) | `/change-password` asks for the current and new password, then calls **`POST /api/auth/change-password`** (rate-limited). The backend steps are listed below the table. Users reach the page any time from the account menu. |
+| Password recovery | `/forgot-password` → `supabase.auth.resetPasswordForEmail(email, {redirectTo: APP_URL + '/reset-password'})`, with the same message whether or not the account exists. `/reset-password` waits for the `PASSWORD_RECOVERY` session and calls `updateUser({password})`. On the next `/api/auth/me` the server clears `must_change_password`, because the owner of the mailbox chose this password. Expired or reused links show "invalid link". |
+| Email verification | Accounts are created by an administrator with `email_confirm: true`: the admin vouches for the address and no confirmation email is sent. Ownership of the mailbox is proven whenever the person uses password recovery. Users can't change their email address themselves. |
 | Logout | `supabase.auth.signOut()` then `/login`. |
-| Backend verification | The `requireAuth` middleware verifies the token with `supabase.auth.getClaims(token)` (signing keys via JWKS, cached), then loads `app_users` by `auth_user_id = sub`. `requireAdmin` checks `role = 'admin'`. JWT expiry stays at the 1 h default. Because roles are read from the database on every request, demoting someone takes effect on their next request. |
-| Existing users | Passwords can't be exported. `scripts/invite-users.js` invites each imported `app_users` row and links `auth_user_id`. Users click the email and set a new password. It runs as an explicit, separate step (§6). |
+| `/register` | Kept as an information page: "Accounts are created by your store administrator." It has no form, and no page links to it. |
+| Existing (imported) users | Passwords can't be exported from Base44. The administrator either creates each user's initial password in User Management, or `scripts/create-accounts.js` (approval only) creates accounts with a random password that is never shown and sends each person a password-reset email. |
+
+**`POST /api/users`: what the backend does when an admin creates an account:**
+1. Verifies that the caller is an admin, from `app_users.role`; otherwise 403. Cashiers can't create any account, admins included.
+2. Validates the body: `full_name` (1–200 characters), `email` (normalised), `password` (policy above) and `role` (`admin` or `user`). Unknown fields are rejected.
+3. Rejects a duplicate email: `409 USER_EXISTS` if it's already in `app_users` or in Supabase Auth.
+4. Creates the Auth account with the **Supabase Auth Admin API**: `auth.admin.createUser({email, password, email_confirm: true})`, using the secret key on Railway only.
+5. Inserts `app_users` with the full name, role, `must_change_password = true`, and `auth_user_id` = the new Auth user id.
+   - **Linking:** `app_users.id` stays the text primary key (S1). Imported Base44 ids must be preserved, because sales, shifts and returns reference them.
+   - So the link is the unique `app_users.auth_user_id` column, referencing `auth.users(id)`, rather than reusing `auth.users.id` as `app_users.id`.
+   - This gives the same one-to-one guarantee without rewriting historical ids.
+6. **Failure handling:** if step 5 fails, the Auth user from step 4 is deleted at once, so no half-created account remains. If step 4 fails, nothing was written. If the cleanup itself fails, the error is logged as an orphaned auth id (no password in the log), and the next attempt for that email returns 409 until it's resolved.
+7. Logging: request bodies of auth routes are never logged; pino redacts `password` and `current_password`.
+
+**`POST /api/auth/change-password`: what the backend does:**
+1. Verifies the current password with a Supabase sign-in on the server.
+2. Checks the new password against the policy, and that it differs from the current one.
+3. Updates it with `auth.admin.updateUserById`.
+4. Sets `must_change_password = false`.
+5. Signs the user's other sessions out.
+6. Never logs either password.
+
+**Roles and permissions:**
+- Only admins create accounts and assign roles.
+- Cashiers can't create accounts or change any role.
+- Nobody can change their **own** role.
+- The **last remaining admin** can't be demoted or deleted (`409 LAST_ADMIN`), so the store can never lose administrator access.
 
 ---
 
@@ -414,6 +458,7 @@ The 10 tables, their columns, CHECK constraints and indexes are reused as writte
 | S11 | RLS **enabled on all 10 tables**, no policies; `REVOKE ALL` on these tables from `anon` and `authenticated` | Data access is through the API only (§2). Supabase stopped auto-exposing new tables to the Data API in 2026, and the revoke makes it explicit. |
 | S13 | `shifts.report_path text` (nullable) | Links the stored official PDF (new or migrated) to its shift. |
 | S14 | `shifts.declared_cash numeric(12,2)` (nullable, `CHECK >= 0`) | The cashier's count is stored, so the server can compute the variance for the PDF and email. Previously it only existed in the browser. |
+| S15 | `app_users.must_change_password boolean NOT NULL DEFAULT false` (round 5) | Set to `true` when an admin creates an account with a temporary password. Cleared by `POST /api/auth/change-password`, or by a completed email password reset. While it's `true`, the API refuses everything except `/api/auth/me` and the password change. The table never holds a password or hash. |
 | S12 | Extra indexes: `transactions(cashier_email, created_date DESC)`, `transactions(sale_type, created_date DESC)`, `shifts(created_date DESC)`, `stock_adjustments(created_date DESC)` | These match the actual query patterns in §1.1. |
 
 **Kept as is:**
@@ -447,7 +492,7 @@ They are created with `supabase migration new` and applied with `supabase db pus
    - money values with more than 2 decimals, and stored totals that don't equal the sum of their lines (exact decimal comparison).
 3. **Fix** anything reported, with your decision for each case. The script never "repairs" data silently.
 
-**Target protection (correction, round 3).** These rules apply to every script that writes: `import-base44.js`, `migrate-images.js`, `migrate-reports.js` and `invite-users.js`.
+**Target protection (correction, round 3).** These rules apply to every script that writes: `import-base44.js`, `migrate-images.js`, `migrate-reports.js` and `create-accounts.js`.
 - **Dry-run is the default.** Writing needs `--commit`.
 - `--target staging|production` is **required**, and so is `--expect-ref <project-ref>`.
 - The script reads the **actual** project ref from the connection itself: the `DATABASE_URL` pooler user (`postgres.<ref>`) or host (`db.<ref>.supabase.co`), and the `SUPABASE_URL` host (`<ref>.supabase.co`). It runs `SELECT current_database(), inet_server_addr()` and prints all of them. It aborts unless every source agrees and equals `--expect-ref`.
@@ -459,11 +504,11 @@ They are created with `supabase migration new` and applied with `supabase db pus
    - Original `id`, `created_date`, `updated_date` and `created_by_id` are preserved.
    - The `updated_date` trigger is disabled for the import session only.
 5. **Reconcile.** Row counts and money totals (sum of `grand_total`, `total_refund`, shift totals, stock per product) must match the export exactly. The script prints both sides.
-6. **Images** (§7), then **invite users** (`invite-users.js --dry-run` first, then a real run). This sends real emails, so it only runs on your go-ahead.
+6. **Images** (§7), then **user accounts**. Either the admin sets initial passwords in User Management, or `create-accounts.js` runs (dry-run first): it creates an Auth account for each imported user, with a random password never shown, and sends a password-reset email so each person chooses their own. That sends real emails, so it runs only on your go-ahead.
 7. **Cutover:**
    - Freeze sales on Base44 and take the final export.
    - Repeat steps 2–5 on the **production** Supabase project (only with your approval).
-   - Switch DNS and send the invites.
+   - You switch DNS; the user accounts are then created (step 6).
    - Keep Base44 read-only until you sign off.
 
 ---
@@ -512,7 +557,8 @@ They are created with `supabase migration new` and applied with `supabase db pus
 - **HTTP:**
   - `helmet` is on.
   - CORS allows only `FRONTEND_ORIGINS` (app domain + Vercel preview pattern).
-  - `express-rate-limit` covers the general API (300/min/IP), AI (20/min/user), reports and invites.
+  - `express-rate-limit` covers the general API (300/min/IP), AI (20/min/user), reports, account creation (30/hour/admin) and password change (5 per 15 min per user).
+  - Login and password-reset requests go straight to Supabase Auth, and are limited by its Auth rate limits (§4).
   - `trust proxy` is set for Railway.
 - **Logging:**
   - `pino-http` logs a request id, user id, route, status and latency.
@@ -575,13 +621,11 @@ Enter these in the dashboards, never in code or chat:
 | Item | Where it goes |
 |---|---|
 | Supabase staging + production projects: URL, publishable key, secret key, DB password / session-pooler URL | Vercel (URL + publishable key only), Railway (the rest) |
-| Google OAuth client ID and secret (Google Cloud Console; redirect URI from Supabase) | Supabase Auth → Google |
 | Resend API key + verified sending domain | Railway; Supabase Auth → SMTP |
 | Anthropic API key | Railway |
 | GitHub repository | Vercel + Railway connect to it |
 | Domain registrar or DNS access | DNS records (§9) |
 | Base44 data export (JSON/CSV per entity) and, if obtainable, the `restock_advisor` agent config | Given to me as files |
-| Optional: Microsoft, Facebook and Apple OAuth credentials | Supabase Auth (D5) |
 
 ---
 
@@ -592,9 +636,9 @@ Enter these in the dashboards, never in code or chat:
 3. Express skeleton: config, `pg` pool (NUMERIC kept as strings) plus `money.js`, auth middleware, error handler, logging, `/health`.
 4. Generic entity routes plus the permission matrix, with tests.
 5. Atomic routes: sales, returns, inventory, shifts. Tests include a **concurrency test** (two parallel sales on stock 1: exactly one succeeds) and an idempotency test.
-6. Users and invites, uploads, the email templates (escaped), the Restock Advisor.
+6. Admin-created users and password change, uploads, the email templates (escaped), the optional Restock Advisor.
 7. Frontend: `src/api/client.js`, `supabase.js`, AuthContext and the auth pages, then the mechanical call-site swap, then the logic changes listed in §2.
-8. Import, image and invite scripts, tested against a sample export.
+8. Import, image, report and account-creation scripts, tested against a sample export.
 9. Deployment config, `.env.example` files, README, API docs.
 10. Phase 6 grep audit for `base44`. Then, **on `migration/supabase` only**, delete `src/pages/OAuthConsent.jsx` and `src/lib/app-params.js` (decision B.4, round 3), and remove the Base44 packages. This happens only after a grep shows no remaining imports or references and the build, lint and tests pass. The originals stay in the ZIP and in `original-base44`.
 

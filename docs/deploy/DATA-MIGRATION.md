@@ -69,14 +69,17 @@ node --env-file=.env.staging scripts/migrate-reports.js --target=staging --expec
 - For renamed files, `map.json` maps a file name or URL to a shift id, e.g. `{"report (3).pdf": "abc123"}`.
 - The script never overwrites an existing report. Unmatched or unreadable files are listed; nothing is invented.
 
-## 5. Invitations (real emails, only with your explicit approval)
+## 5. Accounts for imported users (real accounts and emails, only with your explicit approval)
 
-```bash
-node --env-file=.env.staging scripts/invite-users.js --target=staging --expect-ref=<staging-id> [--only=a@x.com] [--delay-ms=2000]
-```
+Passwords can't be exported from Base44. Two ways:
 
-- The dry-run lists the users without a sign-in account. `--commit` emails each one an invitation and links the account.
-- Passwords can't be exported from Base44, so everyone sets a new password from the email (or signs in with Google using the same address).
+- **Admin → Users:** the administrator creates each account with an initial password. It's temporary, and changed at first login.
+- **`create-accounts.js`** (round 5, Stage 12, replacing `invite-users.js`):
+  - The dry-run lists the users without a sign-in account.
+  - `--commit` creates each account through the Supabase Auth Admin API, with a random password that's never shown or logged, and `must_change_password`.
+  - It then sends each person a password-reset email to choose their own password.
+
+There is no social login, so email and password is the only way in.
 
 ## 6. Production cutover (Stage 11, each step with your approval)
 

@@ -17,10 +17,12 @@ procedure on separate projects and is done **only with your explicit approval** 
 2. Note the **project reference ID**, the subdomain of the Project URL.
    - Put it in `server/scripts/targets.json` as `"staging"`.
    - It isn't secret, so it's committed. The migration and test guards refuse any other project.
-3. **Authentication → Sign In / Providers:**
+3. **Authentication → Sign In / Providers:** sign-in is **email and password only**.
    - **Allow new users to sign up: OFF**.
    - Email: on.
-   - Google: on (section 1a).
+   - **Every other provider: off.** Configure none (no Google, Apple, Facebook, Microsoft or other OAuth).
+   - Password policy: minimum length 10, letters and digits. Secure password change: on.
+   - **Authentication → Rate Limits:** keep or tighten the sign-in and password-reset email limits.
 4. **Authentication → URL Configuration:** you fill these in at step 6, once the Vercel URL exists.
 5. **Authentication → SMTP Settings:** enable custom SMTP.
    - Host `smtp.resend.com`, port `465`, username `resend`, password = a Resend API key.
@@ -31,13 +33,6 @@ procedure on separate projects and is done **only with your explicit approval** 
 8. **Database → Settings → SSL Configuration → Download certificate:** its PEM text is `DATABASE_CA_CERT`.
 9. **Account → Access Tokens:** create a **scoped** token limited to the staging project. That's `SUPABASE_ACCESS_TOKEN`, used only by the migration workflow.
 10. Storage buckets are created by the migrations. Create nothing by hand.
-
-### 1a. Google OAuth (staging client)
-
-1. Google Cloud Console → APIs & Services → Credentials → **Create OAuth client ID** → *Web application*.
-2. Authorized JavaScript origins: your staging Vercel URL (add it at step 6).
-3. Authorized redirect URI: `https://<staging-project-id>.supabase.co/auth/v1/callback`.
-4. Paste the client ID and secret **only** into Supabase → Authentication → Providers → Google.
 
 ## 2. GitHub
 
@@ -101,7 +96,7 @@ procedure on separate projects and is done **only with your explicit approval** 
    - Framework, install, build and output come from `vercel.json`: Vite, `npm ci`, `npm run build`, `dist`.
 2. **Settings → Environment Variables**, scope **Preview** (staging values):
    - `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_API_URL` (the Railway URL);
-   - `VITE_AUTH_PROVIDERS=google`, `VITE_CURRENCY`;
+   - `VITE_CURRENCY`;
    - leave `VITE_APP_URL` empty for previews.
    - Only these public values go here. The build refuses anything that looks like a secret.
 3. **Settings → Domains:** add a staging alias whose name contains `staging`, e.g. `b12-staging.vercel.app`, pointing at the `migration/supabase` branch. I'm allowed to run the browser walkthrough (T20) only on a host labelled as staging.
@@ -113,24 +108,24 @@ procedure on separate projects and is done **only with your explicit approval** 
 | Railway (staging) | `APP_URL` | `https://b12-staging.vercel.app` |
 | Railway (staging) | `FRONTEND_ORIGINS` | `https://b12-staging.vercel.app,https://b12-*-<your-vercel-team>.vercel.app` |
 | Supabase (staging) → URL Configuration | Site URL | `https://b12-staging.vercel.app` |
-| Supabase (staging) → URL Configuration | Redirect URLs | `https://b12-staging.vercel.app/**`, `https://b12-*-<your-vercel-team>.vercel.app/**` |
-| Google OAuth client (staging) | Authorized JavaScript origins | `https://b12-staging.vercel.app` |
+| Supabase (staging) → URL Configuration | Redirect URLs (password-reset links only) | `https://b12-staging.vercel.app/**`, `https://b12-*-<your-vercel-team>.vercel.app/**` |
 
 Redeploy Railway after changing its variables.
 
 ## 7. Smoke check (T24, first part)
 
 - `https://<railway-url>/health` returns `{"status":"ok","env":"staging"}`.
-- The staging site opens on `/login` with only "Continue with Google".
-- **First admin:** there's no self sign-up, so the first admin is invited once with `server/scripts/create-first-admin.js`.
+- The staging site opens on `/login` with email, password, **Sign in** and **Forgot password?** only. There are no social buttons and no sign-up link.
+- **First admin:** there's no self sign-up, so the first admin is created once with `server/scripts/create-first-admin.js`.
   - It runs behind the target guard, is dry-run by default, and refuses if any admin already exists.
-  - It **sends a real email**, so it runs only with your approval, to an address you choose.
-  - After that, every user is invited from the Users page.
+  - Round 5 (Stage 12): it asks for the initial password at a hidden prompt, never as an argument. That password is temporary; the first login forces a change.
+  - It creates a real account, so it runs only with your approval.
+  - After that, every Admin and Cashier account is created in **Admin → Users**.
 
 ---
 
 ## Production (later, Stage 11, only with your explicit approval)
 
-- **Separate projects throughout:** Supabase project, Google OAuth client, Railway `production` environment and Vercel **Production** variables.
+- **Separate projects throughout:** Supabase project (same email/password-only auth settings), Railway `production` environment and Vercel **Production** variables.
 - **Migrations:** applied by hand from a terminal behind the production guard (`--i-have-approval-for-production=<id>` plus typing the ID). Never from CI.
 - **Domain:** you add it in Vercel. Then follow [README → After adding your domain](../../README.md#after-adding-your-domain-in-vercel).
