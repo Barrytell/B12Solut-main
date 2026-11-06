@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, ScanBarcode } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import BarcodeScannerModal from './BarcodeScannerModal';
 
 const prettify = (s) => s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -16,7 +16,7 @@ export default function ProductSearch({ products, onAddToCart, getPrice = (p) =>
 
   const { data: categoryEntities = [] } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => base44.entities.Category.list('name'),
+    queryFn: () => api.entities.Category.list('name'),
   });
   const categories = [
     { value: 'all', label: 'All' },

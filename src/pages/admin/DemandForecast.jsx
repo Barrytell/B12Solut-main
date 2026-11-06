@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { TrendingUp, TrendingDown, Minus, RefreshCw, CheckCircle, AlertCircle, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,12 +25,12 @@ export default function DemandForecast() {
 
   const { data: transactions = [], isLoading: loadingTx } = useQuery({
     queryKey: ['transactions-all'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 500),
+    queryFn: () => api.entities.Transaction.list('-created_date', 500),
   });
 
   const { data: products = [], isLoading: loadingProducts } = useQuery({
     queryKey: ['products-admin'],
-    queryFn: () => base44.entities.Product.list(),
+    queryFn: () => api.entities.Product.list(),
   });
 
   const forecast = useMemo(() => computeForecast(transactions, products), [transactions, products]);
@@ -49,7 +49,7 @@ export default function DemandForecast() {
 
   const applyThreshold = async (row) => {
     setApplyingId(row.product.id);
-    await base44.entities.Product.update(row.product.id, {
+    await api.entities.Product.update(row.product.id, {
       low_stock_threshold: row.suggestedThreshold,
     });
     setAppliedIds(prev => new Set([...prev, row.product.id]));
@@ -65,7 +65,7 @@ export default function DemandForecast() {
     if (!confirm(`Apply AI-suggested thresholds to ${toApply.length} product(s)?`)) return;
     setApplyingAll(true);
     for (const row of toApply) {
-      await base44.entities.Product.update(row.product.id, { low_stock_threshold: row.suggestedThreshold });
+      await api.entities.Product.update(row.product.id, { low_stock_threshold: row.suggestedThreshold });
       setAppliedIds(prev => new Set([...prev, row.product.id]));
     }
     queryClient.invalidateQueries({ queryKey: ['products-admin'] });

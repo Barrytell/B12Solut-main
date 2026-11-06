@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
-import { base44 } from "@/api/base44Client";
+import { supabase, appUrl } from "@/lib/supabase";
+import { toast } from "sonner";
 import GoogleIcon from "@/components/GoogleIcon";
 
 const MicrosoftIcon = ({ className }) => (
@@ -24,22 +25,36 @@ const AppleIcon = ({ className }) => (
   </svg>
 );
 
+// `provider` is the Supabase provider id (Microsoft is "azure" in Supabase).
 const PROVIDERS = [
-  { key: "google", label: "Google", Icon: GoogleIcon },
-  { key: "microsoft", label: "Microsoft", Icon: MicrosoftIcon },
-  { key: "facebook", label: "Facebook", Icon: FacebookIcon },
-  { key: "apple", label: "Apple", Icon: AppleIcon },
+  { key: "google", provider: "google", label: "Google", Icon: GoogleIcon },
+  { key: "microsoft", provider: "azure", label: "Microsoft", Icon: MicrosoftIcon },
+  { key: "facebook", provider: "facebook", label: "Facebook", Icon: FacebookIcon },
+  { key: "apple", provider: "apple", label: "Apple", Icon: AppleIcon },
 ];
 
+// D5: only providers configured in Supabase are shown (VITE_AUTH_PROVIDERS, default google).
+const enabled = new Set(
+  (import.meta.env.VITE_AUTH_PROVIDERS ?? "google").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+);
+
 export default function SocialAuthButtons({ returnTo }) {
+  const providers = PROVIDERS.filter((p) => enabled.has(p.key));
+  if (providers.length === 0) return null;
+
+  const signIn = async (provider) => {
+    const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: `${appUrl()}${returnTo || "/"}` } });
+    if (error) toast.error(error.message || "Sign-in failed");
+  };
+
   return (
     <div className="space-y-2.5 mb-6">
-      {PROVIDERS.map(({ key, label, Icon }) => (
+      {providers.map(({ key, provider, label, Icon }) => (
         <Button
           key={key}
           variant="outline"
           className="w-full h-12 text-sm font-medium"
-          onClick={() => base44.auth.loginWithProvider(key, returnTo)}
+          onClick={() => signIn(provider)}
         >
           <Icon className="w-5 h-5 mr-2" />
           Continue with {label}

@@ -1,12 +1,13 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
+import { addQty, sumBy } from '@/lib/money';
 
 export default function TransactionSummary({ transactions = [] }) {
   const active = transactions.filter(t => t.status !== 'voided');
-  const revenue = active.reduce((sum, t) => sum + (t.grand_total || 0), 0);
-  const profit = active.reduce((sum, t) => sum + (t.gross_profit || 0), 0);
+  const revenue = sumBy(active, t => t.grand_total || 0);
+  const profit = sumBy(active, t => t.gross_profit || 0);
   const units = active.reduce(
-    (sum, t) => sum + (t.items || []).reduce((q, i) => q + (i.quantity || 0), 0),
+    (sum, t) => addQty(sum, (t.items || []).reduce((q, i) => addQty(q, i.quantity || 0), 0)),
     0
   );
 

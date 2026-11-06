@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { Plus, Search, Pencil, Trash2, Package } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ export default function Products() {
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products-admin'],
-    queryFn: () => base44.entities.Product.list('-created_date'),
+    queryFn: () => api.entities.Product.list('-created_date'),
   });
 
   const filtered = products.filter(p =>
@@ -26,10 +26,10 @@ export default function Products() {
 
   const handleSave = async (data) => {
     if (editingProduct) {
-      await base44.entities.Product.update(editingProduct.id, data);
+      await api.entities.Product.update(editingProduct.id, data);
       toast.success('Product updated!');
     } else {
-      await base44.entities.Product.create(data);
+      await api.entities.Product.create(data);
       toast.success('Product created!');
     }
     queryClient.invalidateQueries({ queryKey: ['products-admin'] });
@@ -40,7 +40,7 @@ export default function Products() {
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this product?')) return;
-    await base44.entities.Product.delete(id);
+    await api.entities.Product.delete(id);
     queryClient.invalidateQueries({ queryKey: ['products-admin'] });
     toast.success('Product deleted');
   };

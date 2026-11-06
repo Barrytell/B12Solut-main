@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ShoppingCart, Package, Users, Receipt, 
   Clock, ChevronLeft, ChevronRight, LogOut, TrendingUp, Store, Bot, Truck, ClipboardList, BarChart2, Tags, Warehouse
 } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import { cn } from '@/lib/utils';
 
 const adminLinks = [
@@ -34,6 +34,7 @@ const cashierLinks = [
 export default function Sidebar({ userRole }) {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const { logout } = useAuth();
   const links = userRole === 'admin' ? adminLinks : cashierLinks;
 
   return (
@@ -90,7 +91,7 @@ export default function Sidebar({ userRole }) {
           </Link>
         )}
         <button
-          onClick={() => base44.auth.logout()}
+          onClick={() => logout()}
           className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground/60 hover:text-destructive hover:bg-sidebar-accent transition-all w-full"
         >
           <LogOut className="w-[18px] h-[18px] shrink-0" />

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { useOutletContext } from 'react-router-dom';
 import ProductSearch from '@/components/pos/ProductSearch';
 import Cart from '@/components/pos/cart';
@@ -8,9 +8,8 @@ import PaymentModal from '@/components/pos/PaymentModal';
 import ReceiptModal from '@/components/pos/ReceiptModal';
 import SaleTypeToggle from '@/components/pos/SaleTypeToggle';
 import { toast } from 'sonner';
-import { checkAndSendLowStockAlerts } from '@/utils/stockAlerts';
 import { wholesaleUnitPrice } from '@/utils/wholesale';
-import { getUserName } from '@/utils/userName';
+import { priceCart } from '@/lib/money';
 
 /**
  * Shared sale terminal for both retail and wholesale sales.
@@ -31,7 +30,7 @@ export default function SaleTerminal({ initialSaleType = 'retail' }) {
 
   const { data: products = [] } = useQuery({
     queryKey: ['products'],
-    queryFn: () => base44.entities.Product.filter({ is_active: true }),
+    queryFn: () => api.entities.Product.filter({ is_active: true }),
   });
 
   const priceOf = (product) =>
@@ -47,49 +46,35 @@ export default function SaleTerminal({ initialSaleType = 'retail' }) {
       const unitPrice = nextType === 'wholesale'
         ? wholesaleUnitPrice(product)
         : (product?.selling_price ?? item.unit_price);
-      const tax_amount = (unitPrice * item.quantity * (item.tax_rate || 0)) / 100;
-      return {
-        ...item,
-        unit_price: unitPrice,
-        tax_amount,
-        line_total: unitPrice * item.quantity + tax_amount,
-      };
+      return { ...item, unit_price: unitPrice };
     }));
   };
 
-  // Check for active shift
+  // Check for active shift (the server only returns the caller's own shifts)
+  const refreshShift = () => api.entities.Shift.filter({ status: 'open' })
+    .then(shifts => setActiveShift(shifts[0] ?? null));
+
   useEffect(() => {
     if (!user?.email) return;
-    base44.entities.Shift.filter({ cashier_email: user.email, status: 'open' })
-      .then(shifts => {
-        if (shifts.length > 0) {
-          setActiveShift(shifts[0]);
-        }
-      });
+    refreshShift();
   }, [user?.email]);
 
   const startShift = async () => {
-    const shift = await base44.entities.Shift.create({
-      cashier_email: user.email,
-      cashier_name: getUserName(user),
-      start_time: new Date().toISOString(),
-      status: 'open',
-      total_cash_sales: 0,
-      total_card_sales: 0,
-      total_electronic_sales: 0,
-      total_revenue: 0,
-      total_transactions: 0,
-      total_cost: 0,
-      total_profit: 0,
-    });
-    setActiveShift(shift);
-    toast.success('Shift started!');
+    try {
+      const { shift } = await api.shifts.start();
+      setActiveShift(shift);
+      toast.success('Shift started!');
+    } catch (err) {
+      if (err.code === 'SHIFT_ALREADY_OPEN' && err.details?.shift) {
+        setActiveShift(err.details.shift);
+        return;
+      }
+      toast.error(err.message || 'Could not start the shift');
+    }
   };
 
-  const withQuantity = (item, quantity) => {
-    const tax_amount = (item.unit_price * quantity * item.tax_rate) / 100;
-    return { ...item, quantity, tax_amount, line_total: item.unit_price * quantity + tax_amount };
-  };
+  // tax_amount / line_total are derived by priceCart() below, in exact cents
+  const withQuantity = (item, quantity) => ({ ...item, quantity });
 
   const addToCart = (product) => {
     const stock = product.stock_quantity || 0;
@@ -120,8 +105,6 @@ export default function SaleTerminal({ initialSaleType = 'retail' }) {
         unit_price: unitPrice,
         cost_price: product.cost_price || 0,
         tax_rate: taxRate,
-        tax_amount: (unitPrice * taxRate) / 100,
-        line_total: unitPrice + (unitPrice * taxRate) / 100,
       }];
     });
   };
@@ -146,80 +129,62 @@ export default function SaleTerminal({ initialSaleType = 'retail' }) {
     setCartItems(prev => prev.filter(item => item.product_id !== productId));
   };
 
-  const subtotal = cartItems.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0);
-  const taxTotal = cartItems.reduce((sum, item) => sum + item.tax_amount, 0);
-  const grandTotal = subtotal + taxTotal - discount;
-  const totalCost = cartItems.reduce((sum, item) => sum + (item.cost_price * item.quantity), 0);
+  // Same pricing rules as POST /api/sales, in exact cents, so the screen shows
+  // what the server will charge. The server recomputes everything from the database.
+  const priced = priceCart(cartItems, discount);
+  const { subtotal, taxTotal, grandTotal } = priced;
+
+  // One idempotency key per checkout attempt: a double tap or a network retry
+  // replays the same sale instead of charging twice.
+  const checkoutId = useRef(null);
+  const openPayment = () => {
+    checkoutId.current = crypto.randomUUID();
+    setShowPayment(true);
+  };
 
   const handlePayment = async (paymentMethod, amountPaid) => {
-    const txNumber = `${isWholesale ? 'WS' : 'TX'}-${Date.now().toString(36).toUpperCase()}`;
-
-    const payload = {
-      transaction_number: txNumber,
+    const body = {
+      client_request_id: checkoutId.current,
       sale_type: saleType,
-      cashier_email: user.email,
-      cashier_name: getUserName(user),
-      items: cartItems,
-      subtotal,
-      tax_total: taxTotal,
-      discount_amount: discount,
-      grand_total: grandTotal,
-      total_cost: totalCost,
-      gross_profit: grandTotal - totalCost,
+      items: cartItems.map(item => ({ product_id: item.product_id, quantity: item.quantity })),
+      discount_amount: discount || 0,
       payment_method: paymentMethod,
-      amount_paid: amountPaid,
-      change_given: Math.max(0, amountPaid - grandTotal),
-      shift_id: activeShift?.id,
-      status: 'completed',
     };
-    if (isWholesale && customerName.trim()) payload.customer_name = customerName.trim();
+    if (paymentMethod === 'cash') body.amount_paid = amountPaid;
+    if (isWholesale && customerName.trim()) body.customer_name = customerName.trim();
 
-    const transaction = await base44.entities.Transaction.create(payload);
-
-    // Update stock quantities
-    for (const item of cartItems) {
-      const product = products.find(p => p.id === item.product_id);
-      if (product) {
-        await base44.entities.Product.update(item.product_id, {
-          stock_quantity: Math.max(0, (product.stock_quantity || 0) - item.quantity)
-        });
+    let result;
+    try {
+      result = await api.sales.create(body);
+    } catch (err) {
+      if (err.code === 'INSUFFICIENT_STOCK') {
+        const names = (err.details || []).map(d => `${d.name} (${d.available} left)`).join(', ');
+        toast.error(`Not enough stock: ${names}`);
+        queryClient.invalidateQueries({ queryKey: ['products'] });
+      } else if (err.code === 'NO_OPEN_SHIFT') {
+        toast.error('Your shift is no longer open. Start a new shift.');
+        refreshShift();
+      } else {
+        toast.error(err.message || 'The sale could not be completed');
       }
+      return; // keeps the cart so the cashier can fix it and retry
     }
 
-    // Check for low stock and send alerts (fire-and-forget)
-    checkAndSendLowStockAlerts(cartItems, products).then(alerted => {
-      if (alerted?.length > 0) {
-        toast.warning(`⚠️ Low stock alert sent to admin for: ${alerted.map(p => p.name).join(', ')}`);
-      }
-    });
-
-    // Update shift totals
-    if (activeShift) {
-      const fieldMap = { cash: 'total_cash_sales', card: 'total_card_sales', electronic: 'total_electronic_sales' };
-      const field = fieldMap[paymentMethod];
-      await base44.entities.Shift.update(activeShift.id, {
-        [field]: (activeShift[field] || 0) + grandTotal,
-        total_revenue: (activeShift.total_revenue || 0) + grandTotal,
-        total_transactions: (activeShift.total_transactions || 0) + 1,
-        total_cost: (activeShift.total_cost || 0) + totalCost,
-        total_profit: (activeShift.total_profit || 0) + (grandTotal - totalCost),
-      });
-      setActiveShift(prev => ({
-        ...prev,
-        [field]: (prev[field] || 0) + grandTotal,
-        total_revenue: (prev.total_revenue || 0) + grandTotal,
-        total_transactions: (prev.total_transactions || 0) + 1,
-      }));
+    const alerts = result.low_stock_alerts || [];
+    if (alerts.length > 0) {
+      toast.warning(`⚠️ Low stock alert sent to admin for: ${alerts.map(p => p.name).join(', ')}`);
     }
 
+    refreshShift();
     queryClient.invalidateQueries({ queryKey: ['products'] });
     queryClient.invalidateQueries({ queryKey: ['transactions'] });
     queryClient.invalidateQueries({ queryKey: ['transactions-wholesale'] });
+    checkoutId.current = null;
     setCartItems([]);
     setDiscount(0);
     setCustomerName('');
     setShowPayment(false);
-    setCompletedTransaction(transaction);
+    setCompletedTransaction(result.transaction);
   };
 
   if (!activeShift) {
@@ -268,7 +233,7 @@ export default function SaleTerminal({ initialSaleType = 'retail' }) {
         {/* Cart panel */}
         <div className="w-full lg:w-96 shrink-0">
           <Cart
-            items={cartItems}
+            items={priced.lines}
             subtotal={subtotal}
             taxTotal={taxTotal}
             discount={discount}
@@ -276,7 +241,7 @@ export default function SaleTerminal({ initialSaleType = 'retail' }) {
             onUpdateQuantity={updateQuantity}
             onRemoveItem={removeItem}
             onSetDiscount={setDiscount}
-            onCheckout={() => setShowPayment(true)}
+            onCheckout={openPayment}
             title={isWholesale ? 'Wholesale Order' : 'Current Sale'}
             customerName={isWholesale ? customerName : undefined}
             onSetCustomerName={isWholesale ? setCustomerName : undefined}

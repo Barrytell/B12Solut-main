@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { format } from 'date-fns';
 import { History, ArrowUp, ArrowDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 export default function StockAdjustmentLog({ limit = 25 }) {
   const { data: adjustments = [], isLoading } = useQuery({
     queryKey: ['stock-adjustments'],
-    queryFn: () => base44.entities.StockAdjustment.list('-created_date', limit),
+    queryFn: () => api.entities.StockAdjustment.list('-created_date', limit),
   });
 
   return (

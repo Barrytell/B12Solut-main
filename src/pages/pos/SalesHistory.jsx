@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { useOutletContext } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -20,7 +20,7 @@ export default function SalesHistory() {
 
   const { data: transactions = [] } = useQuery({
     queryKey: ['my-transactions', user?.email],
-    queryFn: () => base44.entities.Transaction.filter({ cashier_email: user?.email }, '-created_date', 50),
+    queryFn: () => api.entities.Transaction.filter({ cashier_email: user?.email }, '-created_date', 50),
     enabled: !!user?.email,
   });
 

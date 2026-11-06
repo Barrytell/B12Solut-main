@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { format, subDays, differenceInCalendarDays } from 'date-fns';
 import { DollarSign, TrendingUp, ShoppingBag, Package, Download } from 'lucide-react';
 import { toast } from 'sonner';
@@ -32,15 +32,15 @@ export default function WholesaleDashboard() {
 
   const { data: transactions = [], isLoading } = useQuery({
     queryKey: ['transactions-wholesale'],
-    queryFn: () => base44.entities.Transaction.filter({ sale_type: 'wholesale' }, '-created_date', 500),
+    queryFn: () => api.entities.Transaction.filter({ sale_type: 'wholesale' }, '-created_date', 500),
   });
   const { data: products = [] } = useQuery({
     queryKey: ['products-admin'],
-    queryFn: () => base44.entities.Product.list('-created_date'),
+    queryFn: () => api.entities.Product.list('-created_date'),
   });
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers'],
-    queryFn: () => base44.entities.Supplier.list('-created_date'),
+    queryFn: () => api.entities.Supplier.list('-created_date'),
   });
 
   const supplierIndex = useMemo(() => buildSupplierIndex(products, suppliers), [products, suppliers]);

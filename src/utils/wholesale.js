@@ -1,6 +1,9 @@
 import { format, startOfDay, endOfDay } from 'date-fns';
+import { addMoney, addQty, divMoney, mulMoney, subMoney, sumBy } from '@/lib/money';
 
 // Shared helpers for keeping wholesale (bulk) orders separate from retail sales.
+// Money totals are summed in exact cents (lib/money); ratios (margins, shares,
+// turnover) are display percentages and use plain division.
 
 // Wholesale unit price, falling back to the retail price when no wholesale price is set.
 export const wholesaleUnitPrice = (product) =>
@@ -11,22 +14,21 @@ export const isWholesale = (tx) => tx?.sale_type === 'wholesale';
 // Anything that isn't explicitly wholesale counts as retail (older records have no sale_type).
 export const isRetail = (tx) => !isWholesale(tx);
 
+const orderUnits = (tx) => (tx.items || []).reduce((q, i) => addQty(q, i.quantity || 0), 0);
+
 // Headline totals for a set of wholesale orders.
 export function summarizeWholesale(transactions = []) {
   const orders = transactions.filter(t => t.status !== 'voided');
-  const revenue = orders.reduce((sum, t) => sum + (t.grand_total || 0), 0);
-  const profit = orders.reduce((sum, t) => sum + (t.gross_profit || 0), 0);
-  const units = orders.reduce(
-    (sum, t) => sum + (t.items || []).reduce((q, i) => q + (i.quantity || 0), 0),
-    0
-  );
+  const revenue = sumBy(orders, t => t.grand_total || 0);
+  const profit = sumBy(orders, t => t.gross_profit || 0);
+  const units = orders.reduce((sum, t) => addQty(sum, orderUnits(t)), 0);
 
   return {
     orders: orders.length,
     revenue,
     profit,
     units,
-    avgOrder: orders.length > 0 ? revenue / orders.length : 0,
+    avgOrder: divMoney(revenue, orders.length),
     margin: revenue > 0 ? (profit / revenue) * 100 : 0,
   };
 }
@@ -38,18 +40,17 @@ export function wholesaleProductTotals(transactions = []) {
     (tx.items || []).forEach(item => {
       const key = item.product_name || '—';
       if (!map[key]) map[key] = { name: key, quantity: 0, revenue: 0, cost: 0 };
-      map[key].quantity += item.quantity || 0;
-      map[key].revenue += item.line_total || 0;
-      map[key].cost += (item.cost_price || 0) * (item.quantity || 0);
+      map[key].quantity = addQty(map[key].quantity, item.quantity || 0);
+      map[key].revenue = addMoney(map[key].revenue, item.line_total || 0);
+      map[key].cost = addMoney(map[key].cost, mulMoney(item.cost_price || 0, item.quantity || 0));
     });
   });
 
   return Object.values(map)
-    .map(p => ({
-      ...p,
-      profit: p.revenue - p.cost,
-      margin: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue) * 100 : 0,
-    }))
+    .map(p => {
+      const profit = subMoney(p.revenue, p.cost);
+      return { ...p, profit, margin: p.revenue > 0 ? (profit / p.revenue) * 100 : 0 };
+    })
     .sort((a, b) => b.revenue - a.revenue);
 }
 
@@ -104,9 +105,9 @@ export function scopeOrdersToSupplier(transactions = [], supplierIndex = {}, sup
     .map(tx => {
       const items = (tx.items || []).filter(item => supplierNameForItem(item, supplierIndex) === supplier);
       if (items.length === 0) return null;
-      const grand_total = items.reduce((sum, i) => sum + (i.line_total || 0), 0);
-      const total_cost = items.reduce((sum, i) => sum + (i.cost_price || 0) * (i.quantity || 0), 0);
-      return { ...tx, items, grand_total, total_cost, gross_profit: grand_total - total_cost };
+      const grand_total = sumBy(items, i => i.line_total || 0);
+      const total_cost = sumBy(items, i => mulMoney(i.cost_price || 0, i.quantity || 0));
+      return { ...tx, items, grand_total, total_cost, gross_profit: subMoney(grand_total, total_cost) };
     })
     .filter(Boolean);
 }
@@ -131,23 +132,23 @@ export function wholesaleAnalytics(transactions = []) {
 
   orders.forEach(tx => {
     const total = tx.grand_total || 0;
-    const orderUnits = (tx.items || []).reduce((q, i) => q + (i.quantity || 0), 0);
+    const qty = orderUnits(tx);
 
-    revenue += total;
-    profit += tx.gross_profit || 0;
-    units += orderUnits;
+    revenue = addMoney(revenue, total);
+    profit = addMoney(profit, tx.gross_profit || 0);
+    units = addQty(units, qty);
     if (total > largestOrder) largestOrder = total;
 
     const name = (tx.customer_name || '').trim() || 'Unnamed customer';
     if (!customers[name]) customers[name] = { name, orders: 0, units: 0, revenue: 0 };
     customers[name].orders += 1;
-    customers[name].units += orderUnits;
-    customers[name].revenue += total;
+    customers[name].units = addQty(customers[name].units, qty);
+    customers[name].revenue = addMoney(customers[name].revenue, total);
 
     const method = (tx.payment_method || 'other').toLowerCase();
     if (!payments[method]) payments[method] = { method, orders: 0, amount: 0 };
     payments[method].orders += 1;
-    payments[method].amount += total;
+    payments[method].amount = addMoney(payments[method].amount, total);
   });
 
   return {
@@ -203,9 +204,9 @@ export function wholesaleTurnover(transactions = [], products = [], periodDays =
           stock: product ? (product.stock_quantity || 0) : null,
         };
       }
-      map[key].unitsSold += item.quantity || 0;
-      map[key].revenue += item.line_total || 0;
-      map[key].cost += (item.cost_price || 0) * (item.quantity || 0);
+      map[key].unitsSold = addQty(map[key].unitsSold, item.quantity || 0);
+      map[key].revenue = addMoney(map[key].revenue, item.line_total || 0);
+      map[key].cost = addMoney(map[key].cost, mulMoney(item.cost_price || 0, item.quantity || 0));
     });
   });
 
@@ -214,26 +215,27 @@ export function wholesaleTurnover(transactions = [], products = [], periodDays =
     .map(r => {
       const stockUnits = r.stock ?? 0;
       const dailyRate = r.unitsSold / days;
+      const profit = subMoney(r.revenue, r.cost);
       return {
         ...r,
-        profit: r.revenue - r.cost,
-        margin: r.revenue > 0 ? ((r.revenue - r.cost) / r.revenue) * 100 : 0,
+        profit,
+        margin: r.revenue > 0 ? (profit / r.revenue) * 100 : 0,
         turnover: stockUnits > 0 ? r.unitsSold / stockUnits : null,
         daysOfSupply: stockUnits > 0 && dailyRate > 0 ? stockUnits / dailyRate : null,
-        stockValue: stockUnits * (r.costPrice || 0),
+        stockValue: mulMoney(r.costPrice || 0, stockUnits),
       };
     })
     .sort((a, b) => (b.turnover ?? -1) - (a.turnover ?? -1) || b.revenue - a.revenue);
 
-  const unitsSold = rows.reduce((sum, r) => sum + r.unitsSold, 0);
-  const stockUnits = rows.reduce((sum, r) => sum + (r.stock ?? 0), 0);
+  const unitsSold = rows.reduce((sum, r) => addQty(sum, r.unitsSold), 0);
+  const stockUnits = rows.reduce((sum, r) => addQty(sum, r.stock ?? 0), 0);
 
   return {
     rows,
     totals: {
       unitsSold,
       stockUnits,
-      stockValue: rows.reduce((sum, r) => sum + r.stockValue, 0),
+      stockValue: sumBy(rows, r => r.stockValue),
       overallTurnover: stockUnits > 0 ? unitsSold / stockUnits : null,
     },
   };

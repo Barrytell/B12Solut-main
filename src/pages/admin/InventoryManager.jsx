@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { Plus, Search, Save, RotateCcw, Package, TrendingUp, AlertTriangle, CheckSquare, Square, Layers, X, ArrowUpDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -11,10 +10,9 @@ import { cn } from '@/lib/utils';
 import ProductFormModal from '@/components/admin/ProductFormModal';
 import StockAdjustmentLog from '@/components/admin/StockAdjustmentLog';
 import { toast } from 'sonner';
-import { getUserName } from '@/utils/userName';
+import { sumMoney, mulMoney } from '@/lib/money';
 
 export default function InventoryManager() {
-  const { user } = useOutletContext();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -31,12 +29,12 @@ export default function InventoryManager() {
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products-inventory'],
-    queryFn: () => base44.entities.Product.list('-created_date'),
+    queryFn: () => api.entities.Product.list('-created_date'),
   });
 
   const { data: categoryEntities = [] } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => base44.entities.Category.list('name'),
+    queryFn: () => api.entities.Category.list('name'),
   });
   const categories = ['all', ...categoryEntities.map(c => c.name)];
 
@@ -61,7 +59,7 @@ export default function InventoryManager() {
   const totalProducts = products.length;
   const lowStock = products.filter(p => (p.stock_quantity || 0) <= (p.low_stock_threshold || 10) && p.stock_quantity > 0).length;
   const outOfStock = products.filter(p => (p.stock_quantity || 0) === 0).length;
-  const totalValue = products.reduce((sum, p) => sum + ((p.cost_price || 0) * (p.stock_quantity || 0)), 0);
+  const totalValue = sumMoney(products.map(p => mulMoney(p.cost_price || 0, p.stock_quantity || 0)));
 
   const getEdit = (id, field, fallback) => edits[id]?.[field] !== undefined ? edits[id][field] : fallback;
   const setEdit = (id, field, value) => setEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
@@ -89,45 +87,27 @@ export default function InventoryManager() {
     }
     setSaving(true);
     try {
-      const stockLogs = [];
-      await Promise.all(dirtyIds.map(id => {
-        const product = products.find(p => p.id === id);
-        if (!product) return;
+      // One atomic call: every row is locked, the previous stock is read on the
+      // server, every stock change is audited, and all rows save or none do.
+      const updates = dirtyIds.filter(id => products.some(p => p.id === id)).map(id => {
         const patch = edits[id];
-        const parsed = {};
-        if (patch.stock_quantity !== undefined) {
-          const prevQty = product.stock_quantity || 0;
-          const newQty = parseInt(patch.stock_quantity) || 0;
-          parsed.stock_quantity = newQty;
-          if (newQty !== prevQty) {
-            stockLogs.push({
-              product_id: product.id,
-              product_name: product.name,
-              sku: product.sku,
-              previous_quantity: prevQty,
-              new_quantity: newQty,
-              delta: newQty - prevQty,
-              reason: adjustmentReason.trim(),
-              user_email: user?.email,
-              user_name: getUserName(user),
-            });
-          }
-        }
-        if (patch.selling_price !== undefined) parsed.selling_price = parseFloat(patch.selling_price) || 0;
-        if (patch.wholesale_price !== undefined) parsed.wholesale_price = parseFloat(patch.wholesale_price) || 0;
-        if (patch.cost_price !== undefined) parsed.cost_price = parseFloat(patch.cost_price) || 0;
+        const parsed = { product_id: id };
+        if (patch.stock_quantity !== undefined) parsed.stock_quantity = parseInt(patch.stock_quantity) || 0;
+        if (patch.selling_price !== undefined) parsed.selling_price = patch.selling_price === '' ? 0 : patch.selling_price;
+        if (patch.wholesale_price !== undefined) parsed.wholesale_price = patch.wholesale_price === '' ? 0 : patch.wholesale_price;
+        if (patch.cost_price !== undefined) parsed.cost_price = patch.cost_price === '' ? 0 : patch.cost_price;
         if (patch.low_stock_threshold !== undefined) parsed.low_stock_threshold = parseInt(patch.low_stock_threshold) || 10;
-        return base44.entities.Product.update(id, parsed);
-      }));
-      if (stockLogs.length > 0) {
-        await base44.entities.StockAdjustment.bulkCreate(stockLogs);
-        queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
-      }
+        return parsed;
+      });
+      await api.inventory.update({ reason: adjustmentReason.trim() || undefined, updates });
+      queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
       toast.success(`Saved changes to ${dirtyIds.length} product(s)`);
       setEdits({});
       setAdjustmentReason('');
       queryClient.invalidateQueries({ queryKey: ['products-inventory'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+    } catch (err) {
+      toast.error(err?.message || 'Could not save the changes; nothing was changed');
     } finally {
       setSaving(false);
     }
@@ -143,35 +123,15 @@ export default function InventoryManager() {
       toast.error('A reason is required for bulk stock changes');
       return;
     }
+    if (val < 0) {
+      toast.error('Enter a quantity of 0 or more');
+      return;
+    }
     setSaving(true);
     try {
-      const stockLogs = [];
-      await Promise.all([...selected].map(id => {
-        const product = products.find(p => p.id === id);
-        const prevQty = product?.stock_quantity || 0;
-        let newQty;
-        if (bulkMode === 'set') newQty = val;
-        else if (bulkMode === 'add') newQty = Math.max(0, prevQty + val);
-        else newQty = Math.max(0, prevQty - val);
-        if (product && newQty !== prevQty) {
-          stockLogs.push({
-            product_id: product.id,
-            product_name: product.name,
-            sku: product.sku,
-            previous_quantity: prevQty,
-            new_quantity: newQty,
-            delta: newQty - prevQty,
-            reason: bulkReason.trim(),
-            user_email: user?.email,
-            user_name: getUserName(user),
-          });
-        }
-        return base44.entities.Product.update(id, { stock_quantity: newQty });
-      }));
-      if (stockLogs.length > 0) {
-        await base44.entities.StockAdjustment.bulkCreate(stockLogs);
-        queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
-      }
+      // Atomic on the server: locks, live stock, audit rows; add/subtract clamp at 0 as before.
+      await api.inventory.bulkStock({ product_ids: [...selected], mode: bulkMode, value: val, reason: bulkReason.trim() });
+      queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
       const modeLabel = bulkMode === 'set' ? `set to ${val}` : bulkMode === 'add' ? `increased by ${val}` : `decreased by ${val}`;
       toast.success(`Stock ${modeLabel} for ${selected.size} product(s)`);
       setSelected(new Set());
@@ -184,6 +144,8 @@ export default function InventoryManager() {
       });
       queryClient.invalidateQueries({ queryKey: ['products-inventory'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+    } catch (err) {
+      toast.error(err?.message || 'Could not update stock; nothing was changed');
     } finally {
       setSaving(false);
     }
@@ -215,10 +177,10 @@ export default function InventoryManager() {
 
   const handleSaveProduct = async (data) => {
     if (editingProduct) {
-      await base44.entities.Product.update(editingProduct.id, data);
+      await api.entities.Product.update(editingProduct.id, data);
       toast.success('Product updated!');
     } else {
-      await base44.entities.Product.create(data);
+      await api.entities.Product.create(data);
       toast.success('Product created!');
     }
     queryClient.invalidateQueries({ queryKey: ['products-inventory'] });

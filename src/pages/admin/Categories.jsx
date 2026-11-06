@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { Plus, Trash2, Tag, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -15,12 +15,12 @@ export default function Categories() {
 
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => base44.entities.Category.list('name'),
+    queryFn: () => api.entities.Category.list('name'),
   });
 
   const { data: products = [] } = useQuery({
     queryKey: ['products-admin'],
-    queryFn: () => base44.entities.Product.list(),
+    queryFn: () => api.entities.Product.list(),
   });
 
   const countFor = (catName) => products.filter(p => p.category === catName).length;
@@ -35,7 +35,7 @@ export default function Categories() {
     }
     setAdding(true);
     try {
-      await base44.entities.Category.create({ name });
+      await api.entities.Category.create({ name });
       toast.success(`Category "${prettify(name)}" added`);
       setNewName('');
       queryClient.invalidateQueries({ queryKey: ['categories'] });
@@ -54,7 +54,7 @@ export default function Categories() {
     }
     if (!window.confirm(`Delete category "${prettify(cat.name)}"?`)) return;
     try {
-      await base44.entities.Category.delete(cat.id);
+      await api.entities.Category.delete(cat.id);
       toast.success('Category deleted');
       queryClient.invalidateQueries({ queryKey: ['categories'] });
     } catch (err) {

@@ -4,20 +4,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { buildShiftReportData, generateShiftPDF, generateAndSendReport } from '@/utils/shiftReport';
-import { format } from 'date-fns';
-
-const steps = ['review', 'cash', 'sending', 'done'];
+import { buildShiftReportData, generateShiftPDF } from '@/utils/shiftReport';
+import { api, openShiftReport } from '@/api/client';
+import { loadStoreSettings } from '@/utils/storeSettings';
+import { subMoney } from '@/lib/money';
 
 export default function ShiftCloseModal({ shift, onConfirm, onClose }) {
   const [step, setStep] = useState('review');
   const [declaredCash, setDeclaredCash] = useState('');
   const [reportData, setReportData] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [closedShift, setClosedShift] = useState(null);
+  const [emailSent, setEmailSent] = useState(false);
   const [error, setError] = useState(null);
 
   const variance = reportData && declaredCash !== ''
-    ? parseFloat(declaredCash) - reportData.summary.expectedCash
+    ? subMoney(declaredCash, reportData.summary.expectedCash)
     : null;
 
   const varianceColor = variance === null ? '' : variance === 0 ? 'text-green-600' : variance > 0 ? 'text-yellow-600' : 'text-red-600';
@@ -37,21 +38,34 @@ export default function ShiftCloseModal({ shift, onConfirm, onClose }) {
   const handleFinalize = async () => {
     setStep('sending');
     setError(null);
-    const cash = declaredCash !== '' ? parseFloat(declaredCash) : null;
-    const closedShift = { ...shift, end_time: new Date().toISOString() };
+    // 1. Close on the server (stores the counted cash). If this fails the shift stays open.
+    let closed;
     try {
-      const data = reportData
-        ? { ...reportData, shift: closedShift, summary: { ...reportData.summary, endTime: format(new Date(), 'h:mm a') } }
-        : await buildShiftReportData(closedShift);
-      const { pdfUrl: url } = await generateAndSendReport({ ...data, shift: closedShift }, cash);
-      setPdfUrl(url);
+      ({ shift: closed } = await api.shifts.close(shift.id, declaredCash !== '' ? { declared_cash: declaredCash } : {}));
+      setClosedShift(closed);
     } catch (e) {
-      // Closing the shift must never be blocked by the report or the email
+      setError(e?.message || 'The shift could not be closed. Please try again.');
+      setStep('cash');
+      return;
+    }
+    // 2. The server builds the official PDF from database values, stores it and emails the admins.
+    //    Closing is never undone by a report or email failure.
+    try {
+      const s = loadStoreSettings();
+      const store = Object.fromEntries(['storeName', 'storeAddress', 'storePhone', 'storeEmail', 'storeWebsite']
+        .map((k) => [k, String(s[k] ?? '').slice(0, 200)]));
+      const result = await api.shifts.report(closed.id, { store });
+      setEmailSent(result.email_sent);
+      closed = { ...closed, report_path: result.report_path };
+      setClosedShift(closed);
+    } catch (e) {
       setError(e?.message || 'The report could not be generated or emailed.');
     }
-    await onConfirm(closedShift, cash);
+    await onConfirm(closed);
     setStep('done');
   };
+
+  const downloadReport = () => openShiftReport(closedShift.id).catch((e) => setError(e.message));
 
   const downloadPreview = () => {
     if (!reportData) return;
@@ -174,6 +188,8 @@ export default function ShiftCloseModal({ shift, onConfirm, onClose }) {
               </button>
             )}
 
+            {error && <p className="text-sm text-destructive">{error}</p>}
+
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setStep('review')} className="flex-1">← Back</Button>
               <Button onClick={handleFinalize} className="flex-1 bg-destructive hover:bg-destructive/90">
@@ -208,19 +224,17 @@ export default function ShiftCloseModal({ shift, onConfirm, onClose }) {
               <p className="text-sm text-muted-foreground mt-1 break-words">
                 {error
                   ? `Shift closed, but the report could not be sent: ${error}`
-                  : `Report emailed to ${reportData?.adminEmails?.length || 0} admin${(reportData?.adminEmails?.length || 0) === 1 ? '' : 's'}.`}
+                  : emailSent ? 'The official report was emailed to the admins.' : 'The report was saved. No admin email could be sent.'}
               </p>
             </div>
-            {pdfUrl && (
-              <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+            {closedShift?.report_path && (
+              <button
+                onClick={downloadReport}
                 className="flex items-center gap-2 px-5 py-2.5 bg-primary/10 text-primary rounded-xl text-sm font-medium hover:bg-primary/20 transition-colors"
               >
                 <Download className="w-4 h-4" />
                 Download PDF Report
-              </a>
+              </button>
             )}
             <Button onClick={onClose} className="w-full mt-2">Done</Button>
           </div>

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useOutletContext } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { api, openShiftReport } from '@/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Clock, DollarSign, CreditCard, Smartphone, Banknote, Receipt } from 'lucide-react';
+import { toast } from 'sonner';
+import { Clock, DollarSign, CreditCard, Smartphone, Banknote, Receipt, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import StatCard from '@/components/shared/StatCard';
 import ShiftCloseModal from '@/components/pos/ShiftCloseModal';
@@ -12,31 +13,35 @@ export default function MyShift() {
   const { user } = useOutletContext();
   const queryClient = useQueryClient();
   const [shift, setShift] = useState(null);
+  const [lastClosed, setLastClosed] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showCloseModal, setShowCloseModal] = useState(false);
 
   useEffect(() => {
     if (!user?.email) return;
-    base44.entities.Shift.filter({ cashier_email: user.email, status: 'open' })
-      .then(shifts => {
-        if (shifts.length > 0) setShift(shifts[0]);
-        setLoading(false);
-      });
+    // The server returns only the caller's own shifts.
+    Promise.all([
+      api.entities.Shift.filter({ status: 'open' }),
+      api.entities.Shift.filter({ status: 'closed' }, '-created_date', 1),
+    ]).then(([open, closed]) => {
+      setShift(open[0] ?? null);
+      setLastClosed(closed[0] ?? null);
+    }).catch((err) => toast.error(err.message || 'Could not load your shift'))
+      .finally(() => setLoading(false));
   }, [user?.email]);
 
+  // The modal already closed the shift on the server; keep it on screen until "Done".
   const handleConfirmClose = async (closedShift) => {
-    await base44.entities.Shift.update(shift.id, {
-      status: 'closed',
-      end_time: closedShift.end_time,
-    });
     queryClient.invalidateQueries({ queryKey: ['shifts-all'] });
-    setShift(null);
+    setLastClosed(closedShift);
   };
 
   const handleModalClose = () => {
     setShowCloseModal(false);
-    // If shift was closed, the shift state is already null
+    if (lastClosed && shift && lastClosed.id === shift.id) setShift(null);
   };
+
+  const viewReport = (id) => openShiftReport(id).catch((err) => toast.error(err.message));
 
   if (loading) {
     return (
@@ -52,6 +57,17 @@ export default function MyShift() {
         <Clock className="w-16 h-16 text-muted-foreground/30 mb-4" />
         <h2 className="text-xl font-bold">No Active Shift</h2>
         <p className="text-sm text-muted-foreground mt-2">Start a shift from the POS screen to begin tracking.</p>
+        {lastClosed && (
+          <Button
+            variant="outline"
+            className="mt-6 rounded-xl gap-2"
+            disabled={!lastClosed.report_path}
+            onClick={() => viewReport(lastClosed.id)}
+          >
+            <FileText className="w-4 h-4" />
+            {lastClosed.report_path ? 'View last shift report' : 'No report for your last shift'}
+          </Button>
+        )}
       </div>
     );
   }

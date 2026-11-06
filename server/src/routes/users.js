@@ -17,7 +17,7 @@ const isAlreadyRegistered = (error) => /already (been )?registered|already exist
 
 export function usersRouter({ db, authAdmin, config }) {
   const router = Router();
-  const redirectTo = `${config.appUrl}/reset-password`;
+  const redirectTo = `${config.appUrl}/reset-password?invite=1`;
 
   router.use(rateLimit({
     windowMs: 60 * 60_000, limit: 30, keyGenerator: (req) => `invite:${req.user.id}`,

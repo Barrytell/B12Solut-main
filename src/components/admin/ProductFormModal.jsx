@@ -6,25 +6,25 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import ProductImageField from '@/components/admin/ProductImageField';
 
 export default function ProductFormModal({ product, onSave, onClose }) {
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers'],
-    queryFn: () => base44.entities.Supplier.list(),
+    queryFn: () => api.entities.Supplier.list(),
   });
 
   const { data: categories = [] } = useQuery({
     queryKey: ['categories'],
-    queryFn: () => base44.entities.Category.list('name'),
+    queryFn: () => api.entities.Category.list('name'),
   });
 
   const [form, setForm] = useState({
     name: product?.name || '',
     sku: product?.sku || '',
     barcode: product?.barcode || '',
-    category: product?.category || 'other',
+    category: product?.category || '',
     selling_price: product?.selling_price || '',
     wholesale_price: product?.wholesale_price ?? '',
     cost_price: product?.cost_price || '',
@@ -77,9 +77,10 @@ export default function ProductFormModal({ product, onSave, onClose }) {
             </div>
             <div className="space-y-1.5">
               <Label>Category</Label>
-              <Select value={form.category} onValueChange={v => update('category', v)}>
+              <Select value={form.category || 'none'} onValueChange={v => update('category', v === 'none' ? '' : v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="none">No category</SelectItem>
                   {categories.map(c => (
                     <SelectItem key={c.id} value={c.name}>{c.name.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</SelectItem>
                   ))}

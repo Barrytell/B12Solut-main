@@ -165,6 +165,33 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 
 ### Stage 6 — Frontend migration (same UI, same routes)
 
+*Stage 6 status (2026-11-06):*
+- *Code is complete. `npm run lint` and `npm run build` **pass**: the first successful build since the migration began.*
+- *The bundle contains no `base44` code and no secrets; the only `VITE_` values in it are the Supabase URL and the publishable key.*
+- *A parity test shows the browser cart total equals the server's charge on 2,000 random carts.*
+- *Local smoke test without a backend:*
+  - *`/admin` redirects to `/login`;*
+  - *only the Google button shows (D5);*
+  - *an invalid invite link shows the "invalid invitation" screen;*
+  - *`/register` explains the invite flow.*
+- ***Not yet verified with a backend:** every data screen, sign-in, invites, sales, returns, inventory and reports. That happens on staging (T20).*
+
+*Changes made beyond a straight swap:*
+- *Close shift: the server closes the shift first. If that fails the shift stays open and the error shows. Then the server builds and emails the report, and "Download PDF" fetches a fresh 10-minute link.*
+  - *My Shift now keeps the closed shift on screen until "Done". Before, the confirmation and download screen disappeared at once.*
+  - *My Shift offers "View last shift report".*
+- *The browser "Preview PDF before sending" button is kept. It's a preview only, never stored or emailed.*
+- *`stockAlerts.js` is removed: low-stock emails are sent by the server after each sale. The client-side upload and email code in `shiftReport.js` is removed too.*
+- *The user form invites by email (name, email, role). The starting-password and one-time-code steps are gone (D1). Users now have "Resend invite".*
+- *Product form: category defaults to "No category" instead of `'other'`.*
+- *Product images: PNG, JPEG, WebP and GIF, at most 5 MB, checked in the browser and again on the server.*
+- *Inventory and bulk-stock saves now show an error toast on failure; before, a failed save gave no message.*
+- *The Vite config sets the `@` alias itself (the Base44 plugin did that before). There is a local favicon, and `vercel.json` adds the SPA rewrite and security headers.*
+- *Money in the browser:*
+  - *Cart pricing, return previews, the shift-close variance and every dashboard, margin, wholesale and purchase-order total use exact cents (`src/lib/money.js`).*
+  - *Ratios (margin %, share, turnover) and demand-forecast statistics stay plain division; they aren't money amounts.*
+- ***Open:** the `$` symbol is still hard-coded in labels (K9). It's correct for USD, the default, and gets switched to `formatMoney` if you set another currency.*
+
 - [ ] 6.1 `src/lib/supabase.js`, `src/api/client.js` (same `entities.X.*` shape).
 - [ ] 6.2 `AuthContext` on supabase-js; auth pages; Google only (D5); the invite form (D1).
 - [ ] 6.3 Mechanical `base44.` → `api.` swap (about 22 files).

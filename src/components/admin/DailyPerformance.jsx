@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { format } from 'date-fns';
 import { CalendarDays, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { sumBy } from '@/lib/money';
 
 function pctChange(curr, prev) {
   if (prev === 0) return curr === 0 ? 0 : 100;
@@ -26,8 +27,8 @@ export default function DailyPerformance({ transactions }) {
     const todays = transactions.filter(t => t.created_date && t.created_date.startsWith(tDate));
     const yesterdays = transactions.filter(t => t.created_date && t.created_date.startsWith(yDate));
 
-    const todayRevenue = todays.reduce((s, t) => s + (t.grand_total || 0), 0);
-    const yesterdayRevenue = yesterdays.reduce((s, t) => s + (t.grand_total || 0), 0);
+    const todayRevenue = sumBy(todays, t => t.grand_total || 0);
+    const yesterdayRevenue = sumBy(yesterdays, t => t.grand_total || 0);
 
     return {
       today: { revenue: todayRevenue, count: todays.length },

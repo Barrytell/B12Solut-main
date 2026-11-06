@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { Plus, Pencil, Trash2, Truck, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +16,7 @@ export default function Suppliers() {
 
   const { data: suppliers = [], isLoading } = useQuery({
     queryKey: ['suppliers'],
-    queryFn: () => base44.entities.Supplier.list('-created_date'),
+    queryFn: () => api.entities.Supplier.list('-created_date'),
   });
 
   const filtered = suppliers.filter(s =>
@@ -28,10 +28,10 @@ export default function Suppliers() {
 
   const handleSave = async (data) => {
     if (editingSupplier) {
-      await base44.entities.Supplier.update(editingSupplier.id, data);
+      await api.entities.Supplier.update(editingSupplier.id, data);
       toast.success('Supplier updated!');
     } else {
-      await base44.entities.Supplier.create(data);
+      await api.entities.Supplier.create(data);
       toast.success('Supplier created!');
     }
     queryClient.invalidateQueries({ queryKey: ['suppliers'] });
@@ -41,7 +41,7 @@ export default function Suppliers() {
 
   const handleDelete = async (id) => {
     if (!confirm('Delete this supplier?')) return;
-    await base44.entities.Supplier.delete(id);
+    await api.entities.Supplier.delete(id);
     queryClient.invalidateQueries({ queryKey: ['suppliers'] });
     toast.success('Supplier deleted');
   };

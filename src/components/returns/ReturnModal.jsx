@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
+import { formatMoney } from '@/lib/money';
 import { Search, ScanBarcode, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,8 +10,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import BarcodeScannerModal from '@/components/pos/BarcodeScannerModal';
 import ReturnItemRow from '@/components/returns/ReturnItemRow';
-import { getUserName } from '@/utils/userName';
-import { applyReturnStock, calcReturnItem, calcReturnTotals, makeReturnItem, makeReturnNumber } from '@/utils/returns';
+import { calcReturnItem, calcReturnTotals, makeReturnItem } from '@/utils/returns';
 
 const refundMethods = [
   { value: 'cash', label: 'Cash' },
@@ -21,7 +20,6 @@ const refundMethods = [
 ];
 
 export default function ReturnModal({ products, onClose, onComplete }) {
-  const { user } = useOutletContext();
   const queryClient = useQueryClient();
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState('');
@@ -70,38 +68,28 @@ export default function ReturnModal({ products, onClose, onComplete }) {
     }
     setSubmitting(true);
     try {
-      const returnNumber = makeReturnNumber();
-      const record = {
-        return_number: returnNumber,
-        cashier_email: user?.email,
-        cashier_name: getUserName(user),
-        items,
+      // One atomic server call: the return, restocking and audit rows commit
+      // together. Costs come from the database; the refund price is the admin's.
+      const body = {
+        items: items.map(i => ({ product_id: i.product_id, quantity: i.quantity, unit_price: i.unit_price, condition: i.condition })),
         refund_method: refundMethod,
-        status: 'processed',
-        ...totals,
       };
-      if (receiptRef.trim()) record.original_transaction_number = receiptRef.trim();
-      if (reason.trim()) record.reason = reason.trim();
+      if (receiptRef.trim()) body.original_transaction_number = receiptRef.trim();
+      if (reason.trim()) body.reason = reason.trim();
 
-      await base44.entities.Return.create(record);
-
-      // Good items go back on the shelf, damaged items are written off (stock untouched)
-      const { restockedUnits, writtenOffUnits } = await applyReturnStock(items, {
-        returnNumber,
-        user,
-      });
+      const { return: record, restocked_units: restockedUnits, written_off_units: writtenOffUnits } = await api.returns.create(body);
 
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['returns'] });
       queryClient.invalidateQueries({ queryKey: ['stock-adjustments'] });
       toast.success(
-        `Return ${returnNumber} · $${totals.total_refund.toFixed(2)} refunded · ` +
+        `Return ${record.return_number} · ${formatMoney(record.total_refund)} refunded · ` +
           `${restockedUnits} back in stock` +
           (writtenOffUnits ? ` · ${writtenOffUnits} written off` : '')
       );
       onComplete?.();
     } catch (error) {
-      toast.error('Could not process the return. Please try again.');
+      toast.error(error?.message || 'Could not process the return. Please try again.');
     } finally {
       setSubmitting(false);
     }

@@ -3,7 +3,7 @@ import { Upload, X, ImageIcon, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { toast } from 'sonner';
 
 export default function ProductImageField({ value, onChange }) {
@@ -14,17 +14,21 @@ export default function ProductImageField({ value, onChange }) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please choose an image file');
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
+      toast.error('Please choose a PNG, JPEG, WebP or GIF image');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Images must be 5 MB or smaller');
       return;
     }
     setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadPublicFile({ file });
+      const { file_url } = await api.uploads.productImage(file);
       onChange(file_url);
       toast.success('Photo uploaded');
-    } catch {
-      toast.error('Upload failed — please try again');
+    } catch (err) {
+      toast.error(err?.message || 'Upload failed — please try again');
     } finally {
       setUploading(false);
     }
@@ -74,7 +78,7 @@ export default function ProductImageField({ value, onChange }) {
             placeholder="Or paste an image URL: https://..."
             className="h-9 text-sm"
           />
-          <input ref={inputRef} type="file" accept="image/*" onChange={handleFile} className="hidden" />
+          <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleFile} className="hidden" />
         </div>
       </div>
     </div>

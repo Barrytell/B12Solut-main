@@ -3,6 +3,7 @@ import { format, subDays, startOfDay, addDays } from 'date-fns';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
+import { addMoney, sumBy } from '@/lib/money';
 
 /**
  * Visual trend line of total daily sales volume over the last `days` days.
@@ -20,18 +21,18 @@ export default function SalesTrendChart({ transactions = [], days = 30, range, t
       if (!t.created_date) return;
       const key = t.created_date.slice(0, 10);
       if (key in buckets && t.status !== 'voided' && t.status !== 'refunded') {
-        buckets[key] += t.grand_total || 0;
+        buckets[key] = addMoney(buckets[key], t.grand_total || 0);
       }
     });
     return Object.entries(buckets).map(([date, total]) => ({
       date,
       label: format(new Date(date), 'MMM d'),
-      total: Number(total.toFixed(2)),
+      total,
     }));
   }, [transactions, days, range?.from, range?.to]);
 
   const peak = data.reduce((max, d) => Math.max(max, d.total), 0);
-  const total30 = data.reduce((sum, d) => sum + d.total, 0);
+  const total30 = sumBy(data, d => d.total);
   const heading = title || `Daily Sales — Last ${days} Days`;
 
   return (

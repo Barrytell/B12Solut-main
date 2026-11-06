@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { TrendingUp, DollarSign, Percent, Package, Calendar } from 'lucide-react';
 import StatCard from '@/components/shared/StatCard';
 import { cn } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { subDays, subWeeks, subMonths, subYears, isAfter } from 'date-fns';
 import { isRetail } from '@/utils/wholesale';
+import { addMoney, addQty, mulMoney, subMoney, sumBy } from '@/lib/money';
 
 const COLORS = ['hsl(221, 83%, 53%)', 'hsl(160, 84%, 39%)', 'hsl(30, 92%, 58%)', 'hsl(280, 68%, 60%)', 'hsl(340, 75%, 55%)', '#94a3b8'];
 
@@ -22,12 +23,12 @@ export default function Margins() {
 
   const { data: products = [] } = useQuery({
     queryKey: ['products-admin'],
-    queryFn: () => base44.entities.Product.list(),
+    queryFn: () => api.entities.Product.list(),
   });
 
   const { data: transactions = [] } = useQuery({
     queryKey: ['transactions'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 500),
+    queryFn: () => api.entities.Transaction.list('-created_date', 500),
   });
 
   // Filter transactions by selected time period
@@ -37,9 +38,9 @@ export default function Margins() {
     return transactions.filter(t => isRetail(t) && t.created_date && isAfter(new Date(t.created_date), start));
   }, [transactions, timePeriod]);
 
-  const totalRevenue = filteredTransactions.reduce((sum, t) => sum + (t.grand_total || 0), 0);
-  const totalCost = filteredTransactions.reduce((sum, t) => sum + (t.total_cost || 0), 0);
-  const totalProfit = totalRevenue - totalCost;
+  const totalRevenue = sumBy(filteredTransactions, t => t.grand_total || 0);
+  const totalCost = sumBy(filteredTransactions, t => t.total_cost || 0);
+  const totalProfit = subMoney(totalRevenue, totalCost);
   const avgMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
 
   // Product performance (scoped to period)
@@ -50,9 +51,9 @@ export default function Margins() {
         if (!map[item.product_name]) {
           map[item.product_name] = { name: item.product_name, revenue: 0, cost: 0, quantity: 0 };
         }
-        map[item.product_name].revenue += item.line_total || 0;
-        map[item.product_name].cost += (item.cost_price || 0) * (item.quantity || 0);
-        map[item.product_name].quantity += item.quantity || 0;
+        map[item.product_name].revenue = addMoney(map[item.product_name].revenue, item.line_total || 0);
+        map[item.product_name].cost = addMoney(map[item.product_name].cost, mulMoney(item.cost_price || 0, item.quantity || 0));
+        map[item.product_name].quantity = addQty(map[item.product_name].quantity, item.quantity || 0);
       });
     });
     return map;
@@ -60,7 +61,10 @@ export default function Margins() {
 
   const topProducts = useMemo(() =>
     Object.values(productSales)
-      .map(p => ({ ...p, profit: p.revenue - p.cost, margin: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue) * 100 : 0 }))
+      .map(p => {
+        const profit = subMoney(p.revenue, p.cost);
+        return { ...p, profit, margin: p.revenue > 0 ? (profit / p.revenue) * 100 : 0 };
+      })
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 10),
   [productSales]);
@@ -73,7 +77,7 @@ export default function Margins() {
         const product = products.find(p => p.id === item.product_id);
         const cat = product?.category || 'other';
         if (!map[cat]) map[cat] = { name: cat, value: 0 };
-        map[cat].value += item.line_total || 0;
+        map[cat].value = addMoney(map[cat].value, item.line_total || 0);
       });
     });
     return Object.values(map).sort((a, b) => b.value - a.value);

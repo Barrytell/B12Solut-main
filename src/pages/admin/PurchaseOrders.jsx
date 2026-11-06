@@ -1,22 +1,23 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { FileDown, Package, Truck, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { generatePurchaseOrderPDF } from '@/utils/purchaseOrderPDF';
+import { mulMoney, sumBy } from '@/lib/money';
 
 export default function PurchaseOrders() {
   const [expandedSupplier, setExpandedSupplier] = useState(null);
 
   const { data: products = [] } = useQuery({
     queryKey: ['products-admin'],
-    queryFn: () => base44.entities.Product.list(),
+    queryFn: () => api.entities.Product.list(),
   });
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers'],
-    queryFn: () => base44.entities.Supplier.list(),
+    queryFn: () => api.entities.Supplier.list(),
   });
 
   // Group low-stock products by supplier
@@ -43,10 +44,10 @@ export default function PurchaseOrders() {
           (p.low_stock_threshold || 10) * 3 - (p.stock_quantity || 0),
           (p.low_stock_threshold || 10)
         );
-        return { ...p, reorderQty, lineTotal: reorderQty * (p.cost_price || 0) };
+        return { ...p, reorderQty, lineTotal: mulMoney(p.cost_price || 0, reorderQty) };
       });
 
-      const totalCost = orderItems.reduce((sum, i) => sum + i.lineTotal, 0);
+      const totalCost = sumBy(orderItems, i => i.lineTotal);
       return { supplierId, supplier, items: orderItems, totalCost };
     }).sort((a, b) => (a.supplier ? a.supplier.name : 'zzz').localeCompare(b.supplier ? b.supplier.name : 'zzz'));
   }, [products, suppliers]);

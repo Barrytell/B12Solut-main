@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { Button } from '@/components/ui/button';
 import { Send, PackageSearch, Loader2, RefreshCw } from 'lucide-react';
 import MessageBubble from '@/components/restock/MessageBubble';
+import { toast } from 'sonner';
 
 const SUGGESTED_PROMPTS = [
   'Analyze all stock levels and suggest what to reorder now',
@@ -13,44 +14,41 @@ const SUGGESTED_PROMPTS = [
 ];
 
 export default function RestockAdvisor() {
-  const [conversation, setConversation] = useState(null);
+  // The conversation lives in the page, as before: a new session on load or "New Session".
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [initializing, setInitializing] = useState(true);
+  const initializing = false;
+  const session = useRef(0);
   const bottomRef = useRef(null);
-
-  useEffect(() => {
-    initConversation();
-  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const initConversation = async () => {
-    setInitializing(true);
-    const conv = await base44.agents.createConversation({
-      agent_name: 'restock_advisor',
-      metadata: { name: 'Restock Analysis' },
-    });
-    setConversation(conv);
+  const initConversation = () => {
+    session.current += 1; // drops any answer still in flight for the old session
     setMessages([]);
-    setInitializing(false);
-
-    const unsubscribe = base44.agents.subscribeToConversation(conv.id, (data) => {
-      setMessages(data.messages || []);
-    });
-    return unsubscribe;
+    setLoading(false);
   };
 
   const sendMessage = async (text) => {
     const msg = text || input.trim();
-    if (!msg || loading || !conversation) return;
+    if (!msg || loading) return;
+    const mySession = session.current;
+    const history = [...messages, { role: 'user', content: msg }];
     setInput('');
+    setMessages(history);
     setLoading(true);
-    await base44.agents.addMessage(conversation, { role: 'user', content: msg });
-    setLoading(false);
+    try {
+      // The API keeps no state: send the text history (the last 40 turns).
+      const { message } = await api.advisor.chat(history.filter((m) => m.content).slice(-40).map(({ role, content }) => ({ role, content })));
+      if (session.current === mySession) setMessages((prev) => [...prev, message]);
+    } catch (err) {
+      if (session.current === mySession) toast.error(err.message || 'The advisor could not answer');
+    } finally {
+      if (session.current === mySession) setLoading(false);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -60,7 +58,7 @@ export default function RestockAdvisor() {
     }
   };
 
-  const isThinking = messages.length > 0 && messages[messages.length - 1]?.role === 'user';
+  const isThinking = loading;
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] max-w-4xl mx-auto">

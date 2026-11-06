@@ -24,8 +24,8 @@ export default function Register() {
       }
     >
       <p className="text-sm text-muted-foreground text-center">
-        Ask your store administrator to create your account. Once they set it up, log in with the
-        email and password they give you.
+        Ask your store administrator to invite you. You will receive an email with a link to set
+        your own password.
       </p>
     </AuthLayout>
   );

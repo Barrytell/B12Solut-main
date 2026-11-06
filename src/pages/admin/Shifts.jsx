@@ -1,13 +1,17 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
+import { FileText } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { openShiftReport } from '@/api/client';
 
 export default function Shifts() {
   const { data: shifts = [] } = useQuery({
     queryKey: ['shifts-all'],
-    queryFn: () => base44.entities.Shift.list('-created_date', 50),
+    queryFn: () => api.entities.Shift.list('-created_date', 50),
   });
 
   return (
@@ -31,6 +35,7 @@ export default function Shifts() {
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Revenue</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Profit</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Sales</th>
+                <th className="text-right px-4 py-3 font-medium text-muted-foreground">Report</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -58,6 +63,20 @@ export default function Shifts() {
                   <td className="px-4 py-3 text-right font-semibold">${(s.total_revenue || 0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right font-semibold text-green-600">${(s.total_profit || 0).toFixed(2)}</td>
                   <td className="px-4 py-3 text-right">{s.total_transactions || 0}</td>
+                  <td className="px-4 py-3 text-right">
+                    {s.report_path ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1.5 text-xs"
+                        onClick={() => openShiftReport(s.id).catch((err) => toast.error(err.message))}
+                      >
+                        <FileText className="w-3.5 h-3.5" /> View report
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

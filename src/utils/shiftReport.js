@@ -1,50 +1,48 @@
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { format, differenceInMinutes } from 'date-fns';
 import jsPDF from 'jspdf';
 import { loadStoreSettings } from './storeSettings';
+import { fromCents, lineAmount, sumMoney, toCents, toMilli } from '@/lib/money';
 
 /**
  * Fetches all transactions for a given shift and computes full report data.
  */
 export async function buildShiftReportData(shift) {
-  const transactions = await base44.entities.Transaction.filter({ shift_id: shift.id }, '-created_date');
-
-  // Admin users are the recipients. A cashier is not allowed to list users, so
-  // fall back to the store's own address instead of failing the whole report.
-  let adminEmails = [];
-  try {
-    const allUsers = await base44.entities.User.list();
-    adminEmails = allUsers.filter(u => u.role === 'admin').map(u => u.email);
-  } catch {
-    adminEmails = [loadStoreSettings().storeEmail].filter(Boolean);
-  }
+  // Preview only: the official PDF and the admin email are produced by the
+  // server from database values (POST /api/shifts/:id/report).
+  const transactions = await api.entities.Transaction.filter({ shift_id: shift.id }, '-created_date');
 
   const durationMins = shift.end_time && shift.start_time
     ? differenceInMinutes(new Date(shift.end_time), new Date(shift.start_time))
     : 0;
 
   // Per-product sales breakdown
+  // exact cents (BigInt) while summing; numbers only at the end, for display
   const productMap = {};
   transactions.forEach(tx => {
     tx.items?.forEach(item => {
       if (!productMap[item.product_name]) {
-        productMap[item.product_name] = { name: item.product_name, sku: item.sku, qty: 0, revenue: 0, cost: 0 };
+        productMap[item.product_name] = { name: item.product_name, sku: item.sku, qty: 0n, revenue: 0n, cost: 0n };
       }
-      productMap[item.product_name].qty += item.quantity || 0;
-      productMap[item.product_name].revenue += item.line_total || 0;
-      productMap[item.product_name].cost += (item.cost_price || 0) * (item.quantity || 0);
+      productMap[item.product_name].qty += toMilli(item.quantity || 0);
+      productMap[item.product_name].revenue += toCents(item.line_total || 0);
+      productMap[item.product_name].cost += lineAmount(item.cost_price || 0, item.quantity || 0);
     });
   });
   const topProducts = Object.values(productMap)
-    .map(p => ({ ...p, profit: p.revenue - p.cost, margin: p.revenue > 0 ? ((p.revenue - p.cost) / p.revenue * 100) : 0 }))
-    .sort((a, b) => b.revenue - a.revenue);
+    .sort((a, b) => (b.revenue > a.revenue ? 1 : b.revenue < a.revenue ? -1 : 0))
+    .map(p => {
+      const revenue = fromCents(p.revenue);
+      const profit = fromCents(p.revenue - p.cost);
+      return { ...p, qty: Number(p.qty) / 1000, revenue, cost: fromCents(p.cost), profit, margin: revenue > 0 ? (profit / revenue * 100) : 0 };
+    });
 
   // Hourly breakdown
   const hourlyMap = {};
   transactions.forEach(tx => {
     const hour = tx.created_date ? format(new Date(tx.created_date), 'h a') : 'Unknown';
     if (!hourlyMap[hour]) hourlyMap[hour] = { hour, revenue: 0, txCount: 0 };
-    hourlyMap[hour].revenue += tx.grand_total || 0;
+    hourlyMap[hour].revenue = sumMoney([hourlyMap[hour].revenue, tx.grand_total || 0]);
     hourlyMap[hour].txCount += 1;
   });
 
@@ -62,7 +60,6 @@ export async function buildShiftReportData(shift) {
     transactions,
     topProducts,
     hourlyBreakdown: Object.values(hourlyMap),
-    adminEmails,
     summary: {
       cashierName: shift.cashier_name || shift.cashier_email,
       date: shift.start_time ? format(new Date(shift.start_time), 'MMMM d, yyyy') : format(new Date(), 'MMMM d, yyyy'),
@@ -326,133 +323,4 @@ export function generateShiftPDF(reportData, declaredCash = null) {
   }
 
   return doc;
-}
-
-/**
- * Generates the PDF, uploads it, and sends admin email.
- * Returns { pdfUrl }
- */
-export async function generateAndSendReport(reportData, declaredCash) {
-  const { summary, adminEmails } = reportData;
-  const store = loadStoreSettings();
-
-  // 1. Generate PDF
-  const doc = generateShiftPDF(reportData, declaredCash);
-  const pdfBlob = doc.output('blob');
-  const pdfFile = new File([pdfBlob], `shift-report-${summary.shift?.id}.pdf`, { type: 'application/pdf' });
-
-  // 2. Upload PDF
-  const { file_url: pdfUrl } = await base44.integrations.Core.UploadPublicFile({ file: pdfFile });
-
-  // 3. Send email to each admin
-  const variance = declaredCash !== null ? (declaredCash - summary.expectedCash) : null;
-  const varianceText = variance === null ? 'N/A' : variance === 0 ? 'Balanced ✓' : variance > 0 ? `+$${Math.abs(variance).toFixed(2)} over` : `-$${Math.abs(variance).toFixed(2)} short`;
-
-  const emailBody = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:'Inter',Helvetica,Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:32px 0;">
-  <tr><td align="center">
-    <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-      <!-- Header -->
-      <tr><td style="background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);padding:32px 40px;">
-        <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">${store.storeName || ''}</div>
-        <div style="font-size:12px;color:#bfdbfe;margin-top:4px;">${[store.storeAddress, store.storePhone ? `Tel: ${store.storePhone}` : '', store.storeEmail, store.storeWebsite].filter(Boolean).join(' · ')}</div>
-        <div style="font-size:13px;color:#bfdbfe;margin-top:6px;">Shift End Report</div>
-      </td></tr>
-      <!-- Body -->
-      <tr><td style="padding:32px 40px;">
-        <p style="margin:0 0 6px;font-size:15px;font-weight:600;color:#0f172a;">Shift Closed: ${summary.cashierName}</p>
-        <p style="margin:0 0 24px;font-size:13px;color:#64748b;">${summary.date} · ${summary.startTime} – ${summary.endTime} (${summary.durationMins} min)</p>
-
-        <!-- Stats grid -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-          <tr>
-            <td width="50%" style="padding:0 8px 12px 0;">
-              <div style="background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;">
-                <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Total Revenue</div>
-                <div style="font-size:22px;font-weight:800;color:#1e40af;">$${summary.revenue.toFixed(2)}</div>
-              </div>
-            </td>
-            <td width="50%" style="padding:0 0 12px 8px;">
-              <div style="background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;">
-                <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Gross Profit</div>
-                <div style="font-size:22px;font-weight:800;color:#059669;">$${summary.profit.toFixed(2)} <span style="font-size:13px;color:#94a3b8;">(${summary.margin.toFixed(1)}%)</span></div>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:0 8px 0 0;">
-              <div style="background:#f8fafc;border-radius:12px;padding:16px;border:1px solid #e2e8f0;">
-                <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Transactions</div>
-                <div style="font-size:22px;font-weight:800;color:#6366f1;">${summary.totalTransactions}</div>
-              </div>
-            </td>
-            <td style="padding:0 0 0 8px;">
-              <div style="background:${variance !== null && variance !== 0 ? (variance < 0 ? '#fef2f2' : '#fffbeb') : '#f0fdf4'};border-radius:12px;padding:16px;border:1px solid ${variance !== null && variance !== 0 ? (variance < 0 ? '#fecaca' : '#fde68a') : '#bbf7d0'};">
-                <div style="font-size:10px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">Cash Variance</div>
-                <div style="font-size:18px;font-weight:800;color:${variance !== null && variance !== 0 ? (variance < 0 ? '#dc2626' : '#d97706') : '#059669'};">${varianceText}</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-
-        <!-- Payment breakdown -->
-        <div style="margin-bottom:24px;">
-          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">Payment Breakdown</div>
-          <table width="100%" style="border-collapse:collapse;">
-            <tr style="background:#f8fafc;">
-              <td style="padding:8px 12px;font-size:12px;color:#64748b;border-radius:6px 0 0 6px;">Cash</td>
-              <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#0f172a;text-align:right;">$${summary.cashSales.toFixed(2)}</td>
-              <td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right;border-radius:0 6px 6px 0;">${summary.revenue > 0 ? (summary.cashSales / summary.revenue * 100).toFixed(1) : 0}%</td>
-            </tr>
-            <tr>
-              <td style="padding:8px 12px;font-size:12px;color:#64748b;">Card / POS</td>
-              <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#0f172a;text-align:right;">$${summary.cardSales.toFixed(2)}</td>
-              <td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right;">${summary.revenue > 0 ? (summary.cardSales / summary.revenue * 100).toFixed(1) : 0}%</td>
-            </tr>
-            <tr style="background:#f8fafc;">
-              <td style="padding:8px 12px;font-size:12px;color:#64748b;border-radius:6px 0 0 6px;">Electronic / E-Pay</td>
-              <td style="padding:8px 12px;font-size:13px;font-weight:600;color:#0f172a;text-align:right;">$${summary.electronicSales.toFixed(2)}</td>
-              <td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right;border-radius:0 6px 6px 0;">${summary.revenue > 0 ? (summary.electronicSales / summary.revenue * 100).toFixed(1) : 0}%</td>
-            </tr>
-          </table>
-        </div>
-
-        <!-- PDF link -->
-        <div style="background:#eff6ff;border-radius:12px;padding:16px 20px;border:1px solid #bfdbfe;margin-bottom:24px;">
-          <p style="margin:0 0 8px;font-size:13px;font-weight:600;color:#1e40af;">📎 Full PDF Report Attached</p>
-          <p style="margin:0 0 12px;font-size:12px;color:#3b82f6;">The complete shift report including transaction log and product breakdown is available below.</p>
-          <a href="${pdfUrl}" style="display:inline-block;background:#1e40af;color:#ffffff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:12px;font-weight:600;">Download PDF Report →</a>
-        </div>
-
-        <p style="margin:0;font-size:12px;color:#94a3b8;">This report was automatically generated by ${store.storeName || ''} when ${summary.cashierName} closed their shift.</p>
-      </td></tr>
-      <!-- Footer -->
-      <tr><td style="background:#f8fafc;padding:16px 40px;border-top:1px solid #e2e8f0;">
-        <p style="margin:0;font-size:11px;color:#94a3b8;text-align:center;">${store.storeName || ''} · ${store.storeAddress} · Tel: ${store.storePhone} · ${store.storeEmail} · ${store.storeWebsite}</p>
-        <p style="margin:4px 0 0;font-size:11px;color:#94a3b8;text-align:center;">Automated Shift Report · ${summary.date}</p>
-      </td></tr>
-    </table>
-  </td></tr>
-</table>
-</body>
-</html>
-  `.trim();
-
-  // Send to all admins
-  await Promise.all(
-    adminEmails.map(email =>
-      base44.integrations.Core.SendEmail({
-        to: email,
-        subject: `Shift Report — ${summary.cashierName} · ${summary.date}`,
-        body: emailBody,
-        from_name: `${store.storeName} Reports`,
-      })
-    )
-  );
-
-  return { pdfUrl };
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
+import { api } from '@/api/client';
 import { format } from 'date-fns';
 import { Search, Receipt, ChevronDown, ChevronUp } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -23,7 +23,7 @@ export default function Transactions() {
 
   const { data: transactions = [] } = useQuery({
     queryKey: ['transactions-all'],
-    queryFn: () => base44.entities.Transaction.list('-created_date', 200),
+    queryFn: () => api.entities.Transaction.list('-created_date', 200),
   });
 
   // Wholesale orders also have their own dashboard; this view can show either type.
