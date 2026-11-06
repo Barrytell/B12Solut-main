@@ -237,6 +237,17 @@ Stages 1–3 need no cloud accounts. Stage 4 onwards needs the staging projects 
 
 ### Stage 8 — Migration scripts (staging rehearsal)
 
+*Stage 8 status (2026-11-06): **scripts written and unit-tested, not yet run against a database.** Runbook: `docs/deploy/DATA-MIGRATION.md`.*
+- *`import-base44.js` + `lib/base44-export.js`:*
+  - *pre-import check as specified, including >2-dp money, totals ≠ lines and unknown fields;*
+  - *read-only conflict check against the target;*
+  - *one transaction with reconciliation inside it (any mismatch rolls back).*
+  - *8 unit tests on a synthetic export. Staging test `09-import` covers the commit, kept ids and dates, a detected re-import, and full rollback on a last-step failure.*
+- *`migrate-images.js` (`--hosts` required, content-sniffed, ≤ 5 MB), `migrate-reports.js` (file-name match + manual `--map`, never overwrites), `invite-users.js` (real emails, approval only).*
+- *All four refuse without `--target`/`--expect-ref` (verified) and are dry-run by default.*
+- *Change from A3: renamed PDFs are matched with a `--map` file you confirm, instead of reading the cashier and date from inside the PDF. Automatic matching from PDF contents would be guesswork.*
+- *JSON export only. CSV is added once your real export shows its layout.*
+
 - [ ] 8.1 `import-base44.js`: preflight (orphans, >2-dp money, totals ≠ lines), single-transaction import, exact reconciliation.
 - [ ] 8.2 `migrate-images.js`, `migrate-reports.js`.
 - [ ] 8.3 `invite-users.js`: dry-run only, until you approve real invites.

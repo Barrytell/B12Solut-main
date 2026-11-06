@@ -146,6 +146,7 @@ async function deleteByPattern(db, like, olderThan = null) {
   await db.query(`DELETE FROM public.transaction_items WHERE product_name LIKE $1`, [like]);
   await db.query(`DELETE FROM public.products WHERE name LIKE $1${age}`, [like]);
   await db.query(`DELETE FROM public.categories WHERE name LIKE $1${age}`, [like]);
+  await db.query(`DELETE FROM public.suppliers WHERE (name LIKE $1 OR id LIKE $1)${age}`, [like]);
   await db.query(`DELETE FROM public.app_users WHERE email LIKE $1${age}`, [like]);
 }
 
